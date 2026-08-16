@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Static Block — Raycast Engine (Step 1)</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#03060a; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+  .hud {
+    position:fixed; pointer-events:none; user-select:none;
+    font:11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    color:#2d7f8a; letter-spacing:0.5px; text-shadow:0 0 6px rgba(0,180,200,.25);
+  }
+  #stats { top:10px; left:12px; }
+  #help  { bottom:10px; left:12px; color:#1e5c66; }
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<div class="hud" id="stats"></div>
+<div class="hud" id="help">
+  W/S or &uarr;/&darr; walk &nbsp;·&nbsp; A/D or &larr;/&rarr; turn &nbsp;·&nbsp; Q/E strafe &nbsp;·&nbsp;
+  SHIFT run &nbsp;·&nbsp; T wireframe/solid &nbsp;·&nbsp; M minimap
+</div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ *  STATIC BLOCK — step 1: DDA raycaster, character-cell renderer.
+ *  One ray per character column. Walls drawn as vertical stripes whose
+ *  glyph density + brightness fall off with distance.
+ * ------------------------------------------------------------------ */
+
+/* ---------- 1. MAP ------------------------------------------------ */
+/* 1 = wall, 0 = empty. A rectangular room with two interior blocks so
+   depth / corner behaviour is actually testable. Delete the interior
+   1s for a bare box. */
+const MAP = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+const MAP_H = MAP.length;
+const MAP_W = MAP[0].length;
+
+function isWall(cx, cy) {
+  if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return true;
+  return MAP[cy][cx] === 1;
+}
+
+/* ---------- 2. PLAYER --------------------------------------------- */
+const player = { x: 3.5, y: 3.5, a: 0.35 };   // a = facing angle, radians
+
+const FOV        = 66 * Math.PI / 180;
+const TAN_HALF   = Math.tan(FOV / 2);
+const MOVE_SPEED = 3.0;    // cells / second
+const STRAFE_MUL = 0.85;
+const RUN_MUL    = 1.9;
+const TURN_SPEED = 2.4;    // radians / second
+const RADIUS     = 0.22;   // player collision radius
+const VIEW_DIST  = 16;     // distance at which everything is fully dim
+const GRID_STEP  = 2;      // floor grid line spacing, in map cells
+const GRID_DIST  = 9;      // floor grid draw distance
+
+/* ---------- 3. SCREEN / CHARACTER GRID ---------------------------- */
+const FONT_STACK = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace';
+const BG = "#03060a";
+
+const cv  = document.getElementById("screen");
+const ctx = cv.getContext("2d", { alpha: false });
+
+let W = 0, H = 0, fontPx = 14, cellW = 8, cellH = 15;
+let COLS = 0, ROWS = 0, offX = 0, offY = 0;
+
+let fbChar, fbShade;                       // character framebuffer
+let colDist, colTop, colBottom, colCell, colSide;   // per-column ray results
+let prevCX, prevCY;                        // floor-grid sampling scratch
+
+/* Glyph ramp: index = shade level. Sparse/dim -> dense/bright. */
+const RAMP   = ["·", "·", ".", ".", ":", ":", "░", "░", "▒", "▒", "▓", "█"];
+const LEVELS = RAMP.length;
+
+/* Cyan->deep-blue hologram palette, one colour per shade level. */
+const PALETTE = [];
+for (let i = 0; i < LEVELS; i++) {
+  const t = i / (LEVELS - 1);
+  const hue = 205 - 28 * t;
+  const lum = 10 + 58 * Math.pow(t, 0.9);
+  const sat = 70 + 25 * t;
+  PALETTE.push("hsl(" + hue.toFixed(0) + "," + sat.toFixed(0) + "%," + lum.toFixed(0) + "%)");
+}
+
+function layout() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width  = Math.max(1, Math.round(W * dpr));
+  cv.height = Math.max(1, Math.round(H * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  fontPx = Math.max(8, Math.round(Math.min(W, H) / 46));
+  ctx.font = fontPx + "px " + FONT_STACK;
+  cellW = ctx.measureText("M").width || fontPx * 0.6;
+  cellH = Math.max(2, Math.round(fontPx * 1.08));
+
+  COLS = Math.max(8, Math.floor(W / cellW));
+  ROWS = Math.max(8, Math.floor(H / cellH));
+  offX = (W - COLS * cellW) / 2;
+  offY = (H - ROWS * cellH) / 2;
+
+  fbChar  = new Array(COLS * ROWS).fill(" ");
+  fbShade = new Uint8Array(COLS * ROWS);
+
+  colDist   = new Float32Array(COLS);
+  colTop    = new Int32Array(COLS);
+  colBottom = new Int32Array(COLS);
+  colCell   = new Int32Array(COLS);
+  colSide   = new Uint8Array(COLS);
+
+  prevCX = new Int32Array(COLS);
+  prevCY = new Int32Array(COLS);
+}
+window.addEventListener("resize", layout);
+
+function put(col, row, ch, shade) {
+  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
+  const i = row * COLS + col;
+  fbChar[i]  = ch;
+  fbShade[i] = shade;
+}
+
+/* ---------- 4. INPUT ---------------------------------------------- */
+const keys = Object.create(null);
+let showFill = true, showMap = true;
+
+window.addEventListener("keydown", function (e) {
+  keys[e.code] = true;
+  if (e.code === "KeyT") showFill = !showFill;
+  if (e.code === "KeyM") showMap  = !showMap;
+  if (e.code.indexOf("Arrow") === 0 || e.code === "Space") e.preventDefault();
+});
+window.addEventListener("keyup", function (e) { keys[e.code] = false; });
+window.addEventListener("blur", function () { for (const k in keys) keys[k] = false; });
+
+function down() {
+  for (let i = 0; i < arguments.length; i++) if (keys[arguments[i]]) return true;
+  return false;
+}
+
+/* ---------- 5. MOVEMENT + COLLISION ------------------------------- */
+function free(nx, ny) {
+  const r = RADIUS;
+  return !isWall(Math.floor(nx - r), Math.floor(ny - r)) &&
+         !isWall(Math.floor(nx + r), Math.floor(ny - r)) &&
+         !isWall(Math.floor(nx - r), Math.floor(ny + r)) &&
+         !isWall(Math.floor(nx + r), Math.floor(ny + r));
+}
+
+function update(dt) {
+  let turn = 0, fwd = 0, strafe = 0;
+  if (down("KeyA", "ArrowLeft"))  turn -= 1;
+  if (down("KeyD", "ArrowRight")) turn += 1;
+  if (down("KeyW", "ArrowUp"))    fwd  += 1;
+  if (down("KeyS", "ArrowDown"))  fwd  -= 1;
+  if (down("KeyQ")) strafe -= 1;
+  if (down("KeyE")) strafe += 1;
+
+  const run = down("ShiftLeft", "ShiftRight") ? RUN_MUL : 1;
+  player.a += turn * TURN_SPEED * dt;
+  if (player.a > Math.PI)  player.a -= Math.PI * 2;
+  if (player.a < -Math.PI) player.a += Math.PI * 2;
+
+  const dx = Math.cos(player.a), dy = Math.sin(player.a);
+  // strafe axis = facing rotated 90 degrees clockwise on screen
+  let mx = (dx * fwd + -dy * strafe * STRAFE_MUL) * MOVE_SPEED * run * dt;
+  let my = (dy * fwd +  dx * strafe * STRAFE_MUL) * MOVE_SPEED * run * dt;
+
+  // resolve one axis at a time so the player slides along walls
+  if (free(player.x + mx, player.y)) player.x += mx;
+  if (free(player.x, player.y + my)) player.y += my;
+}
+
+/* ---------- 6. RAYCAST (DDA) -------------------------------------- */
+function castColumns(dirX, dirY, planeX, planeY) {
+  for (let col = 0; col < COLS; col++) {
+    const cameraX = 2 * col / COLS - 1;          // -1 .. +1 across the screen
+    const rayX = dirX + planeX * cameraX;
+    const rayY = dirY + planeY * cameraX;
+
+    let mapX = Math.floor(player.x);
+    let mapY = Math.floor(player.y);
+
+    const deltaX = rayX === 0 ? Infinity : Math.abs(1 / rayX);
+    const deltaY = rayY === 0 ? Infinity : Math.abs(1 / rayY);
+
+    let stepX, stepY, sideDistX, sideDistY;
+    if (rayX < 0) { stepX = -1; sideDistX = (player.x - mapX) * deltaX; }
+    else          { stepX =  1; sideDistX = (mapX + 1 - player.x) * deltaX; }
+    if (rayY < 0) { stepY = -1; sideDistY = (player.y - mapY) * deltaY; }
+    else          { stepY =  1; sideDistY = (mapY + 1 - player.y) * deltaY; }
+
+    let side = 0, hit = false;
+    for (let guard = 0; guard < 128 && !hit; guard++) {
+      if (sideDistX < sideDistY) { sideDistX += deltaX; mapX += stepX; side = 0; }
+      else                       { sideDistY += deltaY; mapY += stepY; side = 1; }
+      if (isWall(mapX, mapY)) hit = true;
+    }
+
+    // perpendicular distance -> no fisheye distortion
+    let dist = side === 0
+      ? (mapX - player.x + (1 - stepX) / 2) / rayX
+      : (mapY - player.y + (1 - stepY) / 2) / rayY;
+    if (!(dist > 0.0001)) dist = 0.0001;
+
+    const lineH = ROWS / dist;
+    colDist[col]   = dist;
+    colTop[col]    = Math.round(ROWS / 2 - lineH / 2);
+    colBottom[col] = Math.round(ROWS / 2 + lineH / 2);
+    colCell[col]   = mapY * MAP_W + mapX;
+    colSide[col]   = side;
+  }
+}
+
+function shadeFor(dist, side) {
+  const t = 1 - Math.min(dist / VIEW_DIST, 1);
+  let lvl = Math.round((LEVELS - 1) * Math.pow(t, 0.85));
+  if (side === 1) lvl -= 2;                 // N/S faces read darker
+  return Math.max(0, Math.min(LEVELS - 1, lvl));
+}
+
+/* ---------- 7. DRAW WALLS ----------------------------------------- */
+function drawWalls() {
+  for (let col = 0; col < COLS; col++) {
+    const top = colTop[col], bottom = colBottom[col];
+    const shade = shadeFor(colDist[col], colSide[col]);
+    const glyph = RAMP[shade];
+
+    const y0 = Math.max(0, top), y1 = Math.min(ROWS - 1, bottom);
+
+    if (showFill) {
+      for (let row = y0; row <= y1; row++) put(col, row, glyph, shade);
+    }
+
+    // wireframe: vertical edge wherever the ray lands on a different
+    // wall cell / face than the previous column
+    const edge = col === 0 ||
+                 colCell[col] !== colCell[col - 1] ||
+                 colSide[col] !== colSide[col - 1];
+    const bright = Math.min(LEVELS - 1, shade + 3);
+
+    if (edge) {
+      for (let row = y0; row <= y1; row++) put(col, row, "│", bright);
+    }
+    if (top >= 0 && top < ROWS)       put(col, top,    edge ? "┼" : "─", bright);
+    if (bottom >= 0 && bottom < ROWS) put(col, bottom, edge ? "┼" : "─", bright);
+  }
+}
+
+/* ---------- 8. FLOOR / CEILING GRID ------------------------------- */
+/* Perspective-correct world grid, mirrored onto the ceiling. A cell is
+   marked when the sampled floor point crosses an integer boundary from
+   its neighbour (left, or the row above) — that catches grid lines that
+   fall between two sample points instead of dropping them. */
+function drawGrid(dirX, dirY, planeX, planeY) {
+  const leftX = dirX - planeX, leftY = dirY - planeY;
+  const rightX = dirX + planeX, rightY = dirY + planeY;
+  const horizon = ROWS / 2;
+  let prevRowValid = false;
+
+  for (let row = Math.floor(horizon) + 1; row < ROWS; row++) {
+    const rowDist = (0.5 * ROWS) / (row - horizon);
+    if (rowDist > GRID_DIST) { prevRowValid = false; continue; }
+
+    const stepX = rowDist * (rightX - leftX) / COLS;
+    const stepY = rowDist * (rightY - leftY) / COLS;
+    let fx = player.x + rowDist * leftX;
+    let fy = player.y + rowDist * leftY;
+
+    const t = 1 - rowDist / GRID_DIST;
+    const shade = Math.max(0, Math.round(3 * t));   // deliberately faint
+    const mirror = ROWS - 1 - row;
+
+    let leftCX = Math.floor(fx / GRID_STEP), leftCY = Math.floor(fy / GRID_STEP);
+
+    for (let col = 0; col < COLS; col++) {
+      const cx = Math.floor(fx / GRID_STEP), cy = Math.floor(fy / GRID_STEP);
+      const crossX = (col > 0 && cx !== leftCX) || (prevRowValid && cx !== prevCX[col]);
+      const crossY = (col > 0 && cy !== leftCY) || (prevRowValid && cy !== prevCY[col]);
+
+      if (crossX || crossY) {
+        const ch = (crossX && crossY) ? "+" : (crossX ? "│" : "─");
+        if (row > colBottom[col]) put(col, row, ch, shade);
+        if (mirror < colTop[col])  put(col, mirror, ch, Math.max(0, shade - 1));
+      }
+
+      prevCX[col] = cx; prevCY[col] = cy;
+      leftCX = cx;      leftCY = cy;
+      fx += stepX;      fy += stepY;
+    }
+    prevRowValid = true;
+  }
+}
+
+/* ---------- 9. FRAMEBUFFER -> CANVAS ------------------------------ */
+function blit() {
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+  ctx.font = fontPx + "px " + FONT_STACK;
+  ctx.textBaseline = "top";
+
+  for (let row = 0; row < ROWS; row++) {
+    const base = row * COLS;
+    const y = offY + row * cellH;
+    let runStart = 0, runShade = -1, buf = "";
+
+    for (let col = 0; col <= COLS; col++) {
+      const ch = col < COLS ? fbChar[base + col] : " ";
+      const sh = col < COLS ? fbShade[base + col] : -1;
+
+      if (ch === " " || sh !== runShade) {
+        if (buf) {                                   // flush the current run
+          ctx.fillStyle = PALETTE[runShade];
+          ctx.fillText(buf, offX + runStart * cellW, y);
+          buf = "";
+        }
+        if (ch !== " ") { runStart = col; runShade = sh; buf = ch; }
+        else runShade = -1;
+      } else {
+        buf += ch;
+      }
+    }
+  }
+}
+
+/* ---------- 10. MINIMAP ------------------------------------------- */
+function drawMinimap() {
+  const s = Math.max(4, Math.round(Math.min(W, H) / 110));
+  const px = W - 14 - MAP_W * s, py = 14;
+
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = "rgba(3,10,16,0.75)";
+  ctx.fillRect(px - 3, py - 3, MAP_W * s + 6, MAP_H * s + 6);
+  ctx.strokeStyle = "rgba(60,180,200,0.25)";
+  ctx.strokeRect(px - 3.5, py - 3.5, MAP_W * s + 7, MAP_H * s + 7);
+
+  ctx.fillStyle = "rgba(80,220,240,0.45)";
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (MAP[y][x] === 1) ctx.fillRect(px + x * s, py + y * s, s - 1, s - 1);
+    }
+  }
+
+  const cx = px + player.x * s, cy = py + player.y * s;
+  ctx.strokeStyle = "rgba(120,255,230,0.5)";
+  ctx.beginPath();
+  for (const sgn of [-1, 1]) {
+    ctx.moveTo(cx, cy);
+    const a = player.a + sgn * FOV / 2;
+    ctx.lineTo(cx + Math.cos(a) * s * 5, cy + Math.sin(a) * s * 5);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = "#8ffbe4";
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(1.5, s * 0.28), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/* ---------- 11. GAME LOOP ----------------------------------------- */
+const statsEl = document.getElementById("stats");
+let last = performance.now(), fps = 60, statTimer = 0;
+
+function frame(now) {
+  let dt = (now - last) / 1000;
+  last = now;
+  if (!(dt > 0)) dt = 0.0001;
+  if (dt > 0.05) dt = 0.05;                 // clamp after tab switches
+  fps += (1 / dt - fps) * 0.1;
+
+  update(dt);
+
+  const dirX = Math.cos(player.a), dirY = Math.sin(player.a);
+  const planeX = -dirY * TAN_HALF, planeY = dirX * TAN_HALF;  // camera plane
+
+  fbChar.fill(" ");
+  fbShade.fill(0);
+
+  castColumns(dirX, dirY, planeX, planeY);
+  drawWalls();
+  drawGrid(dirX, dirY, planeX, planeY);
+  blit();
+  if (showMap) drawMinimap();
+
+  statTimer += dt;
+  if (statTimer > 0.15) {
+    statTimer = 0;
+    statsEl.textContent =
+      "x " + player.x.toFixed(2) + "  y " + player.y.toFixed(2) +
+      "  a " + (player.a * 180 / Math.PI).toFixed(0).padStart(4) + "°" +
+      "   grid " + COLS + "×" + ROWS +
+      "   " + fps.toFixed(0) + " fps";
+  }
+
+  requestAnimationFrame(frame);
+}
+
+layout();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
