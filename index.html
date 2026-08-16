@@ -17,7 +17,9 @@
     color:#2d7f8a; letter-spacing:0.5px; text-shadow:0 0 6px rgba(0,180,200,.25);
   }
   #stats { top:10px; left:12px; }
-  #help  { bottom:10px; left:12px; right:12px; color:#1e5c66; }
+  /* the help line can sit over lit walls now, so it needs the outline too */
+  #help  { bottom:10px; left:12px; right:12px; color:#579aa6;
+           text-shadow:0 0 3px #000, 0 0 8px #000; }
   /* centred, capped width, and sitting above the joystick */
   #prompt, #msg { left:0; right:0; margin:0 auto; max-width:min(30em, 86vw);
                   text-align:center; font-size:13px; }
@@ -28,7 +30,7 @@
     text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000;
     opacity:0; transition:opacity .5s ease;
   }
-  #help.touch { bottom:auto; top:28px; right:112px; }   /* clear of the minimap */
+  #help.touch { bottom:auto; right:12px; }   /* top set in layout(), under the minimap */
 </style>
 </head>
 <body>
@@ -47,45 +49,85 @@
  *  glyph density + brightness fall off with distance.
  * ------------------------------------------------------------------ */
 
-/* ---------- 1. MAP ------------------------------------------------ */
-/* 1 = wall, 0 = empty. A rectangular room with two interior blocks so
-   depth / corner behaviour is actually testable. Delete the interior
-   1s for a bare box. */
-const MAP = [
-  [1,1,1,1,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+/* ---------- 1. WORLD MAP ------------------------------------------ *
+ *  Section 6 scope: one and a bit city blocks, exteriors only.
+ *  The shop and Mrs Ilic's face each other across a street, with the
+ *  alley and its dumpster cut in between them, and a cross street
+ *  running south past the rival's stall. Buildings are solid — no
+ *  interiors yet, the doors are markers.
+ *
+ *  Edit the art directly; each row must stay the same length.
+ *    .  street / alley / walkable      #  plain block wall
+ *    S  THE FIX (your shop)            s  your shop door
+ *    I  Mrs Ilic's building            i  her door
+ *    V  rival's stall (low)            D  dumpster (low)
+ *    B  city backdrop (tall, distant, seals the playable area)
+ * ------------------------------------------------------------------ */
+const MAP_ART = [
+  "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+  "B#####SSSSSSSSS.D.IIIIIIIIII##....#########B",
+  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+  "B#####SSSSssSSS...IIIIiiIIII##....#########B",
+  "B..........................................B",
+  "B..........................................B",
+  "B..........................................B",
+  "B.....................VVVV.................B",
+  "B.....................VVVV.................B",
+  "B#############################....#########B",
+  "B#############################....#########B",
+  "B#############################....#########B",
+  "B#############################....#########B",
+  "B#############################....#########B",
+  "B#############################....#########B",
+  "B#############################....#########B",
+  "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 ];
-const MAP_H = MAP.length;
-const MAP_W = MAP[0].length;
 
-/* Map values >= 2 are solid too, but they can be interacted with.
-   Placeholder content — swap the copy for real job/dialogue hooks. */
-const PROPS = {
-  2: { name: "WORKBENCH", text: "The Tech's bench. Cold iron, a dead multimeter, a shoebox of IOUs." },
-  3: { name: "DUMPSTER",  text: "Rain and flattened cardboard. Something metal underneath." }
+/* Materials. h is wall height in map units with the eye at 0.5, so
+   anything under ~0.9 can be seen over. ramp is that surface's glyph
+   ramp, sparse to dense; bank picks its colour block in PALETTE. */
+const MAT = {
+  1: { name: "WALL",      h: 2.6, bank: 0, ramp: "··..::░░▒▒▓█" },
+  2: { name: "THE FIX",   h: 1.9, bank: 1, ramp: "··--==##%%@█" },
+  3: { name: "ILIC BLDG", h: 2.2, bank: 2, ramp: "··''::!!||║█" },
+  4: { name: "STALL",     h: 0.85, bank: 3, ramp: "··,,xxXX##▒█" },
+  5: { name: "SKYLINE",   h: 5.0, bank: 4, ramp: "····..::::░▒" },
+  6: { name: "DUMPSTER",  h: 0.62, bank: 5, ramp: "··..::░░▒▒▓█",
+       prop: { text: "Rain and flattened cardboard. Something metal underneath." } },
+  7: { name: "SHOP DOOR", h: 1.9, bank: 5, ramp: "··..::░░▒▒▓█",
+       prop: { text: "THE FIX — your shop. Shut for now; the inside comes later." } },
+  8: { name: "ILIC DOOR", h: 2.2, bank: 5, ramp: "··..::░░▒▒▓█",
+       prop: { text: "Mrs Ilic's door. A lamp with a frayed cord sits just inside." } }
 };
+const LEGEND = { ".": 0, "#": 1, "S": 2, "I": 3, "V": 4, "B": 5, "D": 6, "s": 7, "i": 8 };
 const REACH = 2.6;          // how close you must be to interact, in map cells
 
+const MAP = MAP_ART.map(function (row, y) {
+  return row.split("").map(function (ch, x) {
+    if (!(ch in LEGEND)) throw new Error("unknown map glyph '" + ch + "' at " + x + "," + y);
+    return LEGEND[ch];
+  });
+});
+const MAP_H = MAP.length;
+const MAP_W = MAP[0].length;
+MAP.forEach(function (row, y) {
+  if (row.length !== MAP_W) throw new Error("map row " + y + " is " + row.length + ", expected " + MAP_W);
+});
+
 function cellAt(cx, cy) {
-  if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return 1;
+  if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return 5;
   return MAP[cy][cx];
 }
-function isWall(cx, cy) { return cellAt(cx, cy) !== 0; }   // props are solid
+function isWall(cx, cy) { return cellAt(cx, cy) !== 0; }   // every prop is solid
+function matOf(v) { return MAT[v] || MAT[1]; }
 
 /* ---------- 2. PLAYER --------------------------------------------- */
-const player = { x: 3.5, y: 3.5, a: 0.35 };   // a = facing angle, radians
+const player = { x: 10.5, y: 12.1, a: -35 * Math.PI / 180 };  // on the street outside your shop
 
 const FOV        = 66 * Math.PI / 180;
 const TAN_HALF   = Math.tan(FOV / 2);
@@ -96,9 +138,9 @@ const TURN_SPEED = 2.4;    // radians / second
 const RADIUS     = 0.22;   // player collision radius
 const JOY_DEAD   = 0.16;   // joystick dead zone, fraction of its radius
 const LOOK_SENS  = 0.0055; // radians turned per pixel of look-drag
-const VIEW_DIST  = 16;     // distance at which everything is fully dim
+const VIEW_DIST  = 32;     // distance at which everything is fully dim
 const GRID_STEP  = 2;      // floor grid line spacing, in map cells
-const GRID_DIST  = 9;      // floor grid draw distance
+const GRID_DIST  = 11;     // ground grid draw distance
 
 /* ---------- 3. SCREEN / CHARACTER GRID ---------------------------- */
 const FONT_STACK = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace';
@@ -109,36 +151,43 @@ const ctx = cv.getContext("2d", { alpha: false });
 
 let W = 0, H = 0, fontPx = 14, cellW = 8, cellH = 15;
 let canvasLeft = 0, canvasTop = 0;
+let mapScale = 4, mapPanelH = 0;   // minimap geometry, so the HUD can dodge it
 let COLS = 0, ROWS = 0, offX = 0, offY = 0;
 
 let fbChar, fbShade;                       // character framebuffer
-let colDist, colTop, colBottom, colCell, colSide, colType;   // per-column ray results
-let colRayX, colRayY;                      // ray direction per column, for tap hits
+let colTop, colBottom;                     // nearest surface per column
+let slabCount, slabDist, slabTop, slabBottom, slabCell, slabSide, slabType;
+let slabRayX, slabRayY;                    // ray direction per column, for tap hits
 let prevCX, prevCY;                        // floor-grid sampling scratch
 
-/* Glyph ramp: index = shade level. Sparse/dim -> dense/bright. */
-const RAMP   = ["·", "·", ".", ".", ":", ":", "░", "░", "▒", "▒", "▓", "█"];
-const LEVELS = RAMP.length;
+/* Shade levels run sparse/dim -> dense/bright. Each material has its
+   own glyph ramp (see MAT) and its own colour bank below, so the shop,
+   Mrs Ilic's and the plain block walls read as different surfaces even
+   though they share one density scale. */
+const LEVELS = 12;
+const BANK = 16;                            // palette slots reserved per bank
+const RAMP = MAT[1].ramp;                   // fallback ramp
 
-/* Cyan->deep-blue hologram palette, one colour per shade level. */
+/* hue, saturation, min lum, max lum — one entry per bank */
+const BANKS = [
+  [197, 88, 10, 66],   // 0 plain block wall — steel cyan
+  [148, 78, 10, 60],   // 1 THE FIX          — green
+  [280, 62, 11, 64],   // 2 Mrs Ilic's       — violet
+  [ 52, 88, 12, 62],   // 3 rival's stall    — yellow
+  [218, 55,  6, 30],   // 4 skyline          — stays dim, reads as distance
+  [ 38, 95, 11, 58]    // 5 interactive      — amber
+];
 const PALETTE = [];
-for (let i = 0; i < LEVELS; i++) {
-  const t = i / (LEVELS - 1);
-  const hue = 205 - 28 * t;
-  const lum = 10 + 58 * Math.pow(t, 0.9);
-  const sat = 70 + 25 * t;
-  PALETTE.push("hsl(" + hue.toFixed(0) + "," + sat.toFixed(0) + "%," + lum.toFixed(0) + "%)");
-}
-
-/* Interactive surfaces use the same ramp in amber. Shade bytes >= ALT
-   index into this half, which keeps the run-batched blit unchanged. */
-const ALT = 16;
-while (PALETTE.length < ALT) PALETTE.push(PALETTE[0]);
-for (let i = 0; i < LEVELS; i++) {
-  const t = i / (LEVELS - 1);
-  const lum = 11 + 46 * Math.pow(t, 0.9);
-  PALETTE.push("hsl(" + (38 - 6 * t).toFixed(0) + ",95%," + lum.toFixed(0) + "%)");
-}
+BANKS.forEach(function (bnk) {
+  const base = PALETTE.length;
+  for (let i = 0; i < LEVELS; i++) {
+    const t = i / (LEVELS - 1);
+    const lum = bnk[2] + (bnk[3] - bnk[2]) * Math.pow(t, 0.9);
+    PALETTE.push("hsl(" + bnk[0] + "," + bnk[1] + "%," + lum.toFixed(0) + "%)");
+  }
+  while (PALETTE.length < base + BANK) PALETTE.push(PALETTE[base]);
+});
+const ALT = 5 * BANK;                       // interactive bank, used by the HUD
 
 function layout() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -165,21 +214,30 @@ function layout() {
   fbChar  = new Array(COLS * ROWS).fill(" ");
   fbShade = new Uint8Array(COLS * ROWS);
 
-  colDist   = new Float32Array(COLS);
   colTop    = new Int32Array(COLS);
   colBottom = new Int32Array(COLS);
-  colCell   = new Int32Array(COLS);
-  colSide   = new Uint8Array(COLS);
-  colType   = new Uint8Array(COLS);
-  colRayX   = new Float32Array(COLS);
-  colRayY   = new Float32Array(COLS);
+
+  const cells = COLS * MAX_SLABS;
+  slabCount  = new Uint8Array(COLS);
+  slabDist   = new Float32Array(cells);
+  slabTop    = new Int32Array(cells);
+  slabBottom = new Int32Array(cells);
+  slabCell   = new Int32Array(cells);
+  slabSide   = new Uint8Array(cells);
+  slabType   = new Uint8Array(cells);
+  slabRayX   = new Float32Array(COLS);
+  slabRayY   = new Float32Array(COLS);
 
   prevCX = new Int32Array(COLS);
   prevCY = new Int32Array(COLS);
 
+  mapScale  = Math.max(3, Math.round(Math.min(W, H) / 170));
+  mapPanelH = MAP_H * mapScale + 6;
+
   joy.radius = Math.round(Math.max(46, Math.min(W, H) * 0.14));
   joy.homeX  = joy.radius + Math.round(Math.min(W, H) * 0.06);
   joy.homeY  = H - joy.radius - Math.max(30, Math.round(Math.min(W, H) * 0.06));
+  if (typeof setHelp === "function") setHelp();   // help offset depends on the minimap
   if (!joy.active) { joy.curX = joy.homeX; joy.curY = joy.homeY; }
 }
 window.addEventListener("resize", layout);
@@ -372,74 +430,89 @@ function update(dt) {
 }
 
 /* ---------- 5b. INTERACTION ---------------------------------------- *
- *  Every column already knows what it hit and how far away it is, so a
- *  tap is just a lookup into this frame's cast results — no extra ray.
+ *  Every column already knows every surface it crossed and how far away
+ *  each one is, so a tap is a lookup into this frame's cast results —
+ *  no extra ray. Scanning near to far means tapping a dumpster hits the
+ *  dumpster, and tapping above it hits the building behind.
  * ------------------------------------------------------------------- */
 let focusCell = -1, focusType = 0;      // what the centre of the view is on
 let flashType = 0, flashUntil = 0, msgUntil = 0, nowMs = 0;
 
-/* What is reachable at this screen column? row === null skips the
-   vertical test, which is what the centre-of-screen focus check wants. */
+/* The nearest slab in this column whose span contains that row.
+   row === null means "whatever is at eye level", which is what the
+   centre-of-screen focus check wants. */
+function slabAt(col, row) {
+  if (!slabCount || col < 0 || col >= COLS) return -1;
+  const base = col * MAX_SLABS;
+  const at = row === null ? ROWS >> 1 : row;
+  for (let k = 0; k < slabCount[col]; k++) {
+    const i = base + k;
+    const tol = matOf(slabType[i]).prop ? 2 : 0;   // props get a forgiving edge
+    if (at >= slabTop[i] - tol && at <= slabBottom[i] + tol) return i;
+  }
+  return -1;
+}
+
 function targetAt(col, row) {
-  if (!colType || col < 0 || col >= COLS) return null;
-  if (colType[col] < 2) return null;
-  if (colDist[col] > REACH) return null;
-  if (row !== null && (row < colTop[col] - 2 || row > colBottom[col] + 2)) return null;
-  return { type: colType[col], cell: colCell[col] };
+  const i = slabAt(col, row);
+  if (i < 0) return null;
+  if (!matOf(slabType[i]).prop) return null;
+  if (slabDist[i] > REACH) return null;
+  return { type: slabType[i], cell: slabCell[i] };
 }
 
 function updateFocus() {
   const t = targetAt(COLS >> 1, null);
   focusCell = t ? t.cell : -1;
   focusType = t ? t.type : 0;
-  const prop = PROPS[focusType];
-  const label = prop ? "▸ " + prop.name : "";
+  const label = t ? "▸ " + matOf(t.type).name : "";
   if (promptEl.textContent !== label) promptEl.textContent = label;
 }
 
 function interact(t) {
-  const prop = PROPS[t.type];
-  if (!prop) return;
+  const mat = matOf(t.type);
+  if (!mat.prop) return;
   flashType  = t.type;                   // tapping off-centre still highlights it
   flashUntil = nowMs + 260;
   msgUntil   = nowMs + 3200;
-  msgEl.textContent = prop.text;
+  msgEl.textContent = mat.prop.text;
   msgEl.style.opacity = "1";
 }
 
 /* Turn a tap in screen pixels into a world-space event.
-   Because posX + rayDir * perpWallDist lands exactly on the wall face,
-   the same multiply gives the world point for floor and ceiling taps
-   using their own row distance. Returns null only if the tap misses
-   the character grid entirely. */
+   Because posX + rayDir * perpWallDist lands exactly on the surface,
+   the same multiply gives the world point for ground taps using their
+   own row distance. Returns null only if the tap misses the grid. */
 function worldTapEvent(px, py) {
   const col = Math.floor((px - offX) / cellW);
   const row = Math.floor((py - offY) / cellH);
-  if (!colType || col < 0 || col >= COLS) return null;
+  if (!slabCount || col < 0 || col >= COLS) return null;
 
-  const rx = colRayX[col], ry = colRayY[col];
+  const rx = slabRayX[col], ry = slabRayY[col];
   const ev = {
-    kind: "", distance: 0, inReach: false, prop: null,
+    kind: "", material: null, height: 0, distance: 0, inReach: false, prop: false,
     world: null, cell: null,
     screen: { x: Math.round(px), y: Math.round(py), col: col, row: row },
     ray: { x: rx, y: ry },
     from: { x: +player.x.toFixed(3), y: +player.y.toFixed(3), angle: +player.a.toFixed(3) }
   };
 
-  const type = colType[col];
-  const tol = type >= 2 ? 2 : 0;          // props get a slightly forgiving edge
+  const i = slabAt(col, row);
   let dist;
 
-  if (row >= colTop[col] - tol && row <= colBottom[col] + tol) {
-    dist = colDist[col];
-    ev.kind = type >= 2 ? "prop" : "wall";
-    ev.side = colSide[col];
-    ev.prop = PROPS[type] ? PROPS[type].name : null;
+  if (i >= 0) {
+    const mat = matOf(slabType[i]);
+    dist = slabDist[i];
+    ev.kind = mat.prop ? "prop" : "wall";
+    ev.material = mat.name;
+    ev.height = mat.h;
+    ev.prop = !!mat.prop;
+    ev.side = slabSide[i];
   } else {
     const p = row - ROWS / 2;             // above or below the horizon
-    if (Math.abs(p) < 0.5) { ev.kind = "horizon"; return ev; }
-    dist = (0.5 * ROWS) / Math.abs(p);
-    ev.kind = p > 0 ? "floor" : "ceiling";
+    if (p <= 0) { ev.kind = "sky"; return ev; }
+    dist = (0.5 * ROWS) / p;
+    ev.kind = "ground";
   }
 
   const wx = player.x + rx * dist, wy = player.y + ry * dist;
@@ -447,6 +520,7 @@ function worldTapEvent(px, py) {
   ev.inReach  = dist <= REACH;
   ev.world    = { x: +wx.toFixed(3), y: +wy.toFixed(3) };
   ev.cell     = { x: Math.floor(wx), y: Math.floor(wy), value: cellAt(Math.floor(wx), Math.floor(wy)) };
+  if (i >= 0) ev.cell = { x: slabCell[i] % MAP_W, y: Math.floor(slabCell[i] / MAP_W), value: slabType[i] };
   return ev;
 }
 
@@ -455,12 +529,12 @@ function worldTapEvent(px, py) {
    window.onWorldTap to plug in dialogue, job pickup, scavenging, etc.
    The default logs the event and runs the placeholder prop response. */
 window.onWorldTap = function (ev) {
-  console.log("[world tap]", ev.kind,
+  console.log("[world tap]", ev.kind, ev.material || "",
     ev.cell ? "cell " + ev.cell.x + "," + ev.cell.y : "",
     ev.world ? "@ " + ev.world.x + "," + ev.world.y : "",
     ev.inReach ? "(in reach)" : "(out of reach)", ev);
 
-  if (ev.kind === "prop" && ev.inReach) {
+  if (ev.prop && ev.inReach) {
     interact({ type: ev.cell.value, cell: ev.cell.y * MAP_W + ev.cell.x });
   }
 };
@@ -471,8 +545,18 @@ function fireWorldTap(px, py) {
   return ev;
 }
 
-/* ---------- 6. RAYCAST (DDA) -------------------------------------- */
+/* ---------- 6. RAYCAST (DDA) -------------------------------------- *
+ *  A ray no longer stops at the first wall. Because buildings differ in
+ *  height, a low dumpster leaves the block behind it visible above, so
+ *  each column keeps every surface it crossed and the drawing pass
+ *  paints them far to near. Casting stops once a slab reaches the top
+ *  of the screen — nothing behind that can show.
+ * ------------------------------------------------------------------ */
+const MAX_SLABS = 6;
+
 function castColumns(dirX, dirY, planeX, planeY) {
+  const horizon = ROWS / 2;
+
   for (let col = 0; col < COLS; col++) {
     const cameraX = 2 * col / COLS - 1;          // -1 .. +1 across the screen
     const rayX = dirX + planeX * cameraX;
@@ -490,28 +574,51 @@ function castColumns(dirX, dirY, planeX, planeY) {
     if (rayY < 0) { stepY = -1; sideDistY = (player.y - mapY) * deltaY; }
     else          { stepY =  1; sideDistY = (mapY + 1 - player.y) * deltaY; }
 
-    let side = 0, hit = false;
-    for (let guard = 0; guard < 128 && !hit; guard++) {
+    let side = 0, n = 0, minTop = ROWS + 1;
+    const base = col * MAX_SLABS;
+
+    for (let guard = 0; guard < 160; guard++) {
+      if (Math.min(sideDistX, sideDistY) > VIEW_DIST) break;   // past the fog
       if (sideDistX < sideDistY) { sideDistX += deltaX; mapX += stepX; side = 0; }
       else                       { sideDistY += deltaY; mapY += stepY; side = 1; }
-      if (isWall(mapX, mapY)) hit = true;
+
+      const cell = cellAt(mapX, mapY);
+      if (cell === 0) continue;
+
+      // perpendicular distance -> no fisheye distortion
+      let dist = side === 0
+        ? (mapX - player.x + (1 - stepX) / 2) / rayX
+        : (mapY - player.y + (1 - stepY) / 2) / rayY;
+      if (!(dist > 0.0001)) dist = 0.0001;
+
+      // eye sits at 0.5, so a wall of height h spans these rows
+      const proj = ROWS / dist;
+      const top    = Math.round(horizon - (matOf(cell).h - 0.5) * proj);
+      const bottom = Math.round(horizon + 0.5 * proj);
+
+      // every surface shares the ground line, so a farther one is only
+      // visible where it pokes above everything nearer — skip it otherwise
+      if (top >= minTop) { if (minTop <= 0) break; continue; }
+      minTop = top;
+
+      const i = base + n;
+      slabDist[i]   = dist;
+      slabTop[i]    = top;
+      slabBottom[i] = bottom;
+      slabCell[i]   = mapY * MAP_W + mapX;
+      slabSide[i]   = side;
+      slabType[i]   = cell;
+      n++;
+
+      if (top <= 0 || n >= MAX_SLABS) break;   // this slab hides everything behind
     }
 
-    // perpendicular distance -> no fisheye distortion
-    let dist = side === 0
-      ? (mapX - player.x + (1 - stepX) / 2) / rayX
-      : (mapY - player.y + (1 - stepY) / 2) / rayY;
-    if (!(dist > 0.0001)) dist = 0.0001;
-
-    const lineH = ROWS / dist;
-    colDist[col]   = dist;
-    colTop[col]    = Math.round(ROWS / 2 - lineH / 2);
-    colBottom[col] = Math.round(ROWS / 2 + lineH / 2);
-    colCell[col]   = mapY * MAP_W + mapX;
-    colSide[col]   = side;
-    colType[col]   = cellAt(mapX, mapY);
-    colRayX[col]   = rayX;
-    colRayY[col]   = rayY;
+    slabCount[col] = n;
+    slabRayX[col]  = rayX;
+    slabRayY[col]  = rayY;
+    // nearest surface, used by the ground grid and by taps
+    colTop[col]    = n ? slabTop[base] : ROWS + 1;
+    colBottom[col] = n ? slabBottom[base] : -1;
   }
 }
 
@@ -525,47 +632,55 @@ function shadeFor(dist, side) {
 /* ---------- 7. DRAW WALLS ----------------------------------------- */
 function drawWalls() {
   for (let col = 0; col < COLS; col++) {
-    const top = colTop[col], bottom = colBottom[col];
-    const type = colType[col];
-    let lvl = shadeFor(colDist[col], colSide[col]);
-    const prop = type >= 2;
+    const n = slabCount[col];
+    const base = col * MAX_SLABS;
+    const pn = col > 0 ? slabCount[col - 1] : 0;
+    const pbase = (col - 1) * MAX_SLABS;
 
-    // a focused (or just-tapped) prop lifts out of the background —
-    // by type, so every cell of a multi-cell prop lights together
-    if (prop && colDist[col] <= REACH) {
-      const flashing = type === flashType && flashUntil > nowMs;
-      if (flashing)             lvl = Math.min(LEVELS - 1, lvl + 4);
-      else if (type === focusType) lvl = Math.min(LEVELS - 1, lvl + 2);
+    for (let k = n - 1; k >= 0; k--) {          // painter's order: far to near
+      const i = base + k;
+      const type = slabType[i];
+      const mat  = matOf(type);
+      const bank = mat.bank * BANK;
+      let lvl = shadeFor(slabDist[i], slabSide[i]);
+
+      // a focused (or just-tapped) prop lifts out of the background —
+      // by type, so every cell of a multi-cell prop lights together
+      if (mat.prop && slabDist[i] <= REACH) {
+        if (type === flashType && flashUntil > nowMs) lvl = Math.min(LEVELS - 1, lvl + 4);
+        else if (type === focusType)                  lvl = Math.min(LEVELS - 1, lvl + 2);
+      }
+
+      const top = slabTop[i], bottom = slabBottom[i];
+      const y0 = Math.max(0, top), y1 = Math.min(ROWS - 1, bottom);
+      const shade  = bank + lvl;
+      const bright = bank + Math.min(LEVELS - 1, lvl + 3);
+      const glyph  = mat.ramp.charAt(lvl);
+
+      if (showFill) {
+        for (let row = y0; row <= y1; row++) put(col, row, glyph, shade);
+      }
+
+      // wireframe: vertical edge wherever this slab lands on a different
+      // wall cell / face than the matching slab of the previous column
+      const edge = col === 0 || k >= pn ||
+                   slabCell[i] !== slabCell[pbase + k] ||
+                   slabSide[i] !== slabSide[pbase + k];
+
+      if (edge) {
+        for (let row = y0; row <= y1; row++) put(col, row, "│", bright);
+      }
+      if (top >= 0 && top < ROWS)       put(col, top,    edge ? "┼" : "─", bright);
+      if (bottom >= 0 && bottom < ROWS) put(col, bottom, edge ? "┼" : "─", bright);
     }
-    const shade = prop ? ALT + lvl : lvl;
-    const glyph = RAMP[lvl];
-
-    const y0 = Math.max(0, top), y1 = Math.min(ROWS - 1, bottom);
-
-    if (showFill) {
-      for (let row = y0; row <= y1; row++) put(col, row, glyph, shade);
-    }
-
-    // wireframe: vertical edge wherever the ray lands on a different
-    // wall cell / face than the previous column
-    const edge = col === 0 ||
-                 colCell[col] !== colCell[col - 1] ||
-                 colSide[col] !== colSide[col - 1];
-    const bright = (prop ? ALT : 0) + Math.min(LEVELS - 1, lvl + 3);
-
-    if (edge) {
-      for (let row = y0; row <= y1; row++) put(col, row, "│", bright);
-    }
-    if (top >= 0 && top < ROWS)       put(col, top,    edge ? "┼" : "─", bright);
-    if (bottom >= 0 && bottom < ROWS) put(col, bottom, edge ? "┼" : "─", bright);
   }
 }
 
-/* ---------- 8. FLOOR / CEILING GRID ------------------------------- */
-/* Perspective-correct world grid, mirrored onto the ceiling. A cell is
-   marked when the sampled floor point crosses an integer boundary from
-   its neighbour (left, or the row above) — that catches grid lines that
-   fall between two sample points instead of dropping them. */
+/* ---------- 8. GROUND GRID ---------------------------------------- */
+/* Perspective-correct ground grid. A cell is marked when the sampled
+   floor point crosses an integer boundary from its neighbour (left, or
+   the row above) — that catches grid lines that fall between two sample
+   points instead of dropping them. The sky above stays empty. */
 function drawGrid(dirX, dirY, planeX, planeY) {
   const leftX = dirX - planeX, leftY = dirY - planeY;
   const rightX = dirX + planeX, rightY = dirY + planeY;
@@ -583,7 +698,6 @@ function drawGrid(dirX, dirY, planeX, planeY) {
 
     const t = 1 - rowDist / GRID_DIST;
     const shade = Math.max(0, Math.round(3 * t));   // deliberately faint
-    const mirror = ROWS - 1 - row;
 
     let leftCX = Math.floor(fx / GRID_STEP), leftCY = Math.floor(fy / GRID_STEP);
 
@@ -595,7 +709,6 @@ function drawGrid(dirX, dirY, planeX, planeY) {
       if (crossX || crossY) {
         const ch = (crossX && crossY) ? "+" : (crossX ? "│" : "─");
         if (row > colBottom[col]) put(col, row, ch, shade);
-        if (mirror < colTop[col])  put(col, mirror, ch, Math.max(0, shade - 1));
       }
 
       prevCX[col] = cx; prevCY[col] = cy;
@@ -682,7 +795,7 @@ function drawJoystick() {
 
 /* ---------- 11. MINIMAP ------------------------------------------- */
 function drawMinimap() {
-  const s = Math.max(4, Math.round(Math.min(W, H) / 110));
+  const s = mapScale;
   const px = W - 14 - MAP_W * s, py = 14;
 
   ctx.globalAlpha = 0.85;
@@ -695,7 +808,8 @@ function drawMinimap() {
     for (let x = 0; x < MAP_W; x++) {
       const c = MAP[y][x];
       if (!c) continue;
-      ctx.fillStyle = c >= 2 ? "rgba(255,180,87,0.75)" : "rgba(80,220,240,0.45)";
+      const bnk = BANKS[matOf(c).bank];
+      ctx.fillStyle = "hsla(" + bnk[0] + "," + bnk[1] + "%,55%," + (matOf(c).prop ? 0.9 : 0.5) + ")";
       ctx.fillRect(px + x * s, py + y * s, s - 1, s - 1);
     }
   }
@@ -726,8 +840,9 @@ const msgEl    = document.getElementById("msg");
 function setHelp() {
   const mobile = touchUsed || coarsePointer;
   helpEl.classList.toggle("touch", mobile);
+  helpEl.style.top = mobile ? (14 + mapPanelH + 10) + "px" : "";
   helpEl.innerHTML = mobile
-    ? "joystick: move &nbsp;·&nbsp; drag: look<br>tap: interact"
+    ? "joystick: move &nbsp;·&nbsp; drag: look &nbsp;·&nbsp; tap: interact"
     : "drag the stick: move &nbsp;·&nbsp; drag elsewhere: look &nbsp;·&nbsp; click: interact" +
       (DEV_KEYS ? "<br>dev keys: WASD / arrows &nbsp;·&nbsp; Q/E strafe &nbsp;·&nbsp; SHIFT run &nbsp;·&nbsp; " +
                   "SPACE interact &nbsp;·&nbsp; T wireframe/solid &nbsp;·&nbsp; M minimap" : "");
@@ -763,11 +878,12 @@ function frame(now) {
   statTimer += dt;
   if (statTimer > 0.15) {
     statTimer = 0;
-    statsEl.textContent =
-      "x " + player.x.toFixed(2) + "  y " + player.y.toFixed(2) +
-      "  a " + (player.a * 180 / Math.PI).toFixed(0).padStart(4) + "°" +
-      "   grid " + COLS + "×" + ROWS +
-      "   " + fps.toFixed(0) + " fps";
+    statsEl.textContent = W < 560
+      ? "x " + player.x.toFixed(1) + " y " + player.y.toFixed(1) + "  " + fps.toFixed(0) + "fps"
+      : "x " + player.x.toFixed(2) + "  y " + player.y.toFixed(2) +
+        "  a " + (player.a * 180 / Math.PI).toFixed(0).padStart(4) + "°" +
+        "   grid " + COLS + "×" + ROWS +
+        "   " + fps.toFixed(0) + " fps";
   }
 
   requestAnimationFrame(frame);
