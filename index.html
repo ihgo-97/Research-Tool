@@ -18,11 +18,13 @@
   }
   #stats { top:10px; left:12px; }
   #help  { bottom:10px; left:12px; right:12px; color:#1e5c66; }
-  #prompt, #msg { left:0; right:0; text-align:center; font-size:13px; }
+  /* centred, capped width, and sitting above the joystick */
+  #prompt, #msg { left:0; right:0; margin:0 auto; max-width:min(30em, 86vw);
+                  text-align:center; font-size:13px; }
   /* both sit over lit walls, so they carry their own dark outline */
-  #prompt { bottom:19%; color:#ffd9a0; text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000; }
+  #prompt { bottom:30%; color:#ffd9a0; text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000; }
   #msg {
-    bottom:13%; color:#cdf4fb; padding:0 18px;
+    bottom:23%; color:#cdf4fb; padding:0 18px;
     text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000;
     opacity:0; transition:opacity .5s ease;
   }
@@ -111,6 +113,7 @@ let COLS = 0, ROWS = 0, offX = 0, offY = 0;
 
 let fbChar, fbShade;                       // character framebuffer
 let colDist, colTop, colBottom, colCell, colSide, colType;   // per-column ray results
+let colRayX, colRayY;                      // ray direction per column, for tap hits
 let prevCX, prevCY;                        // floor-grid sampling scratch
 
 /* Glyph ramp: index = shade level. Sparse/dim -> dense/bright. */
@@ -168,6 +171,8 @@ function layout() {
   colCell   = new Int32Array(COLS);
   colSide   = new Uint8Array(COLS);
   colType   = new Uint8Array(COLS);
+  colRayX   = new Float32Array(COLS);
+  colRayY   = new Float32Array(COLS);
 
   prevCX = new Int32Array(COLS);
   prevCY = new Int32Array(COLS);
@@ -175,8 +180,7 @@ function layout() {
   joy.radius = Math.round(Math.max(46, Math.min(W, H) * 0.14));
   joy.homeX  = joy.radius + Math.round(Math.min(W, H) * 0.06);
   joy.homeY  = H - joy.radius - Math.max(30, Math.round(Math.min(W, H) * 0.06));
-  if (!joy.active) { joy.baseX = joy.homeX; joy.baseY = joy.homeY;
-                     joy.curX = joy.homeX;  joy.curY = joy.homeY; }
+  if (!joy.active) { joy.curX = joy.homeX; joy.curY = joy.homeY; }
 }
 window.addEventListener("resize", layout);
 window.addEventListener("orientationchange", function () { setTimeout(layout, 120); });
@@ -190,27 +194,32 @@ function put(col, row, ch, shade) {
 }
 
 /* ---------- 4. INPUT ---------------------------------------------- */
+/* Touch is the control scheme. The keyboard is kept only as a desktop
+   testing convenience — set DEV_KEYS to false for touch-only. */
+const DEV_KEYS = true;
+
 const keys = Object.create(null);
 let showFill = true, showMap = true;
 
-window.addEventListener("keydown", function (e) {
-  keys[e.code] = true;
-  if (e.code === "Space" || e.code === "KeyF") {
-    if (!e.repeat) { const t = targetAt(COLS >> 1, null); if (t) interact(t); }
-  }
-  if (e.code === "KeyT") showFill = !showFill;
-  if (e.code === "KeyM") showMap  = !showMap;
-  if (e.code.indexOf("Arrow") === 0 || e.code === "Space") e.preventDefault();
-});
-window.addEventListener("keyup", function (e) { keys[e.code] = false; });
-window.addEventListener("blur", function () { for (const k in keys) keys[k] = false; });
+if (DEV_KEYS) {
+  window.addEventListener("keydown", function (e) {
+    keys[e.code] = true;
+    if (e.code === "Space" || e.code === "KeyF") {
+      if (!e.repeat) { const t = targetAt(COLS >> 1, null); if (t) interact(t); }
+    }
+    if (e.code === "KeyT") showFill = !showFill;
+    if (e.code === "KeyM") showMap  = !showMap;
+    if (e.code.indexOf("Arrow") === 0 || e.code === "Space") e.preventDefault();
+  });
+  window.addEventListener("keyup", function (e) { keys[e.code] = false; });
+  window.addEventListener("blur", function () { for (const k in keys) keys[k] = false; });
+}
 
 // losing focus mid-drag must not leave the stick stuck on
 window.addEventListener("blur", function () {
   joy.pointerId = null;
   joy.active = false;
-  joy.baseX = joy.homeX; joy.baseY = joy.homeY;
-  joy.curX  = joy.homeX; joy.curY  = joy.homeY;
+  joy.curX = joy.homeX; joy.curY = joy.homeY;
   lookId = null;
   lookDelta = 0;
 });
@@ -221,17 +230,19 @@ function down() {
 }
 
 /* ---------- 4b. TOUCH: VIRTUAL JOYSTICK + LOOK-DRAG ---------------- *
- *  Left half of the screen: a joystick that spawns wherever the thumb
- *  lands. Push up/down to walk, left/right to turn.
- *  Right half: drag to look around (finer than the joystick's turn).
- *  Both are analog and both sum with the keyboard, so a desktop mouse
- *  drag exercises exactly the same code path a thumb does.
+ *  Fixed joystick, bottom-left: press on or near it and the knob
+ *  follows your thumb. Push up/down to walk, left/right to turn.
+ *  Anywhere else: drag to look around, or tap to fire a world-space
+ *  interaction event. Pointer events, so a desktop mouse drives the
+ *  same code path a thumb does.
  * ------------------------------------------------------------------ */
 const joy = {
   pointerId: null, active: false,
-  baseX: 0, baseY: 0, curX: 0, curY: 0,
-  homeX: 0, homeY: 0, radius: 60
+  curX: 0, curY: 0,          // knob position, absolute screen pixels
+  homeX: 0, homeY: 0,        // fixed base — never moves
+  radius: 60
 };
+const JOY_GRAB = 1.45;       // press within this multiple of the radius to grab
 let lookId = null, lookLastX = 0, lookDelta = 0;
 const coarsePointer = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
 let touchUsed = false;
@@ -239,34 +250,31 @@ let touchUsed = false;
 function pointerPos(e) {
   return { x: e.clientX - canvasLeft, y: e.clientY - canvasTop };
 }
+function onStick(p) {
+  return Math.hypot(p.x - joy.homeX, p.y - joy.homeY) <= joy.radius * JOY_GRAB;
+}
 
-/* A press counts as a tap if it is brief and barely moves. Touches that
-   land in the joystick zone never tap, so resting or repositioning a
-   thumb on the stick cannot fire an interaction. */
+/* A press counts as a tap if it is brief and barely moves. The pointer
+   driving the stick never taps, so working the joystick cannot fire an
+   interaction; every other pointer can. */
 const TAP_MS = 280, TAP_SLOP = 12;
 const taps = new Map();
-function inJoyZone(p) { return p.x < W * 0.5 && p.y > H * 0.4; }
 
 cv.addEventListener("pointerdown", function (e) {
   if (e.pointerType === "mouse" && e.button !== 0) return;
   const p = pointerPos(e);
   if (e.pointerType !== "mouse") { touchUsed = true; setHelp(); }
 
-  taps.set(e.pointerId, {
-    x: p.x, y: p.y, t: performance.now(),
-    blocked: e.pointerType !== "mouse" && inJoyZone(p)
-  });
+  const grab = joy.pointerId === null && onStick(p);
+  taps.set(e.pointerId, { x: p.x, y: p.y, t: performance.now(), blocked: grab });
 
-  if (joy.pointerId === null && inJoyZone(p)) {
+  if (grab) {
     joy.pointerId = e.pointerId;
     joy.active = true;
-    joy.baseX = p.x; joy.baseY = p.y;
-    joy.curX  = p.x; joy.curY  = p.y;
+    joy.curX = p.x; joy.curY = p.y;
   } else if (lookId === null) {
     lookId = e.pointerId;
     lookLastX = p.x;
-  } else {
-    return;
   }
   if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
   e.preventDefault();
@@ -291,8 +299,7 @@ function releasePointer(e) {
   if (e.pointerId === joy.pointerId) {
     joy.pointerId = null;
     joy.active = false;
-    joy.baseX = joy.homeX; joy.baseY = joy.homeY;
-    joy.curX  = joy.homeX; joy.curY  = joy.homeY;
+    joy.curX = joy.homeX; joy.curY = joy.homeY;   // knob recentres
   } else if (e.pointerId === lookId) {
     lookId = null;
   }
@@ -302,7 +309,7 @@ cv.addEventListener("pointerup", function (e) {
   taps.delete(e.pointerId);
   if (tap && !tap.blocked && performance.now() - tap.t < TAP_MS) {
     const p = pointerPos(e);
-    interactAtPixel(p.x, p.y);
+    fireWorldTap(p.x, p.y);
   }
   releasePointer(e);
 });
@@ -314,8 +321,8 @@ cv.addEventListener("contextmenu", function (e) { e.preventDefault(); });
    remainder rescaled so it still reaches full tilt at the rim. */
 function joyVector() {
   if (!joy.active) return { x: 0, y: 0 };
-  let dx = (joy.curX - joy.baseX) / joy.radius;
-  let dy = (joy.curY - joy.baseY) / joy.radius;
+  let dx = (joy.curX - joy.homeX) / joy.radius;
+  let dy = (joy.curY - joy.homeY) / joy.radius;
   let mag = Math.hypot(dx, dy);
   if (mag < 1e-6) return { x: 0, y: 0 };
   if (mag > 1) { dx /= mag; dy /= mag; mag = 1; }
@@ -400,13 +407,68 @@ function interact(t) {
   msgEl.style.opacity = "1";
 }
 
-/* Tap in screen pixels -> the column and row it landed on. */
-function interactAtPixel(px, py) {
+/* Turn a tap in screen pixels into a world-space event.
+   Because posX + rayDir * perpWallDist lands exactly on the wall face,
+   the same multiply gives the world point for floor and ceiling taps
+   using their own row distance. Returns null only if the tap misses
+   the character grid entirely. */
+function worldTapEvent(px, py) {
   const col = Math.floor((px - offX) / cellW);
   const row = Math.floor((py - offY) / cellH);
-  const t = targetAt(col, row);
-  if (t) interact(t);
-  return !!t;
+  if (!colType || col < 0 || col >= COLS) return null;
+
+  const rx = colRayX[col], ry = colRayY[col];
+  const ev = {
+    kind: "", distance: 0, inReach: false, prop: null,
+    world: null, cell: null,
+    screen: { x: Math.round(px), y: Math.round(py), col: col, row: row },
+    ray: { x: rx, y: ry },
+    from: { x: +player.x.toFixed(3), y: +player.y.toFixed(3), angle: +player.a.toFixed(3) }
+  };
+
+  const type = colType[col];
+  const tol = type >= 2 ? 2 : 0;          // props get a slightly forgiving edge
+  let dist;
+
+  if (row >= colTop[col] - tol && row <= colBottom[col] + tol) {
+    dist = colDist[col];
+    ev.kind = type >= 2 ? "prop" : "wall";
+    ev.side = colSide[col];
+    ev.prop = PROPS[type] ? PROPS[type].name : null;
+  } else {
+    const p = row - ROWS / 2;             // above or below the horizon
+    if (Math.abs(p) < 0.5) { ev.kind = "horizon"; return ev; }
+    dist = (0.5 * ROWS) / Math.abs(p);
+    ev.kind = p > 0 ? "floor" : "ceiling";
+  }
+
+  const wx = player.x + rx * dist, wy = player.y + ry * dist;
+  ev.distance = +dist.toFixed(3);
+  ev.inReach  = dist <= REACH;
+  ev.world    = { x: +wx.toFixed(3), y: +wy.toFixed(3) };
+  ev.cell     = { x: Math.floor(wx), y: Math.floor(wy), value: cellAt(Math.floor(wx), Math.floor(wy)) };
+  return ev;
+}
+
+/* ---- THE HOOK -----------------------------------------------------
+   Every tap and click on the view arrives here. Reassign
+   window.onWorldTap to plug in dialogue, job pickup, scavenging, etc.
+   The default logs the event and runs the placeholder prop response. */
+window.onWorldTap = function (ev) {
+  console.log("[world tap]", ev.kind,
+    ev.cell ? "cell " + ev.cell.x + "," + ev.cell.y : "",
+    ev.world ? "@ " + ev.world.x + "," + ev.world.y : "",
+    ev.inReach ? "(in reach)" : "(out of reach)", ev);
+
+  if (ev.kind === "prop" && ev.inReach) {
+    interact({ type: ev.cell.value, cell: ev.cell.y * MAP_W + ev.cell.x });
+  }
+};
+
+function fireWorldTap(px, py) {
+  const ev = worldTapEvent(px, py);
+  if (ev && typeof window.onWorldTap === "function") window.onWorldTap(ev);
+  return ev;
 }
 
 /* ---------- 6. RAYCAST (DDA) -------------------------------------- */
@@ -448,6 +510,8 @@ function castColumns(dirX, dirY, planeX, planeY) {
     colCell[col]   = mapY * MAP_W + mapX;
     colSide[col]   = side;
     colType[col]   = cellAt(mapX, mapY);
+    colRayX[col]   = rayX;
+    colRayY[col]   = rayY;
   }
 }
 
@@ -575,11 +639,8 @@ function blit() {
 
 /* ---------- 10. JOYSTICK OVERLAY ---------------------------------- */
 function drawJoystick() {
-  if (!coarsePointer && !joy.active) return;      // stay out of the way on desktop
-
   const r = joy.radius;
-  const bx = joy.active ? joy.baseX : joy.homeX;
-  const by = joy.active ? joy.baseY : joy.homeY;
+  const bx = joy.homeX, by = joy.homeY;
 
   let kx = joy.curX - bx, ky = joy.curY - by;
   const mag = Math.hypot(kx, ky);
@@ -666,9 +727,10 @@ function setHelp() {
   const mobile = touchUsed || coarsePointer;
   helpEl.classList.toggle("touch", mobile);
   helpEl.innerHTML = mobile
-    ? "drag left: move &nbsp;·&nbsp; drag right: look<br>tap: interact"
-    : "W/S or &uarr;/&darr; walk &nbsp;·&nbsp; A/D or &larr;/&rarr; turn &nbsp;·&nbsp; Q/E strafe &nbsp;·&nbsp; " +
-      "SPACE or click: interact &nbsp;·&nbsp; SHIFT run &nbsp;·&nbsp; T wireframe/solid &nbsp;·&nbsp; M minimap";
+    ? "joystick: move &nbsp;·&nbsp; drag: look<br>tap: interact"
+    : "drag the stick: move &nbsp;·&nbsp; drag elsewhere: look &nbsp;·&nbsp; click: interact" +
+      (DEV_KEYS ? "<br>dev keys: WASD / arrows &nbsp;·&nbsp; Q/E strafe &nbsp;·&nbsp; SHIFT run &nbsp;·&nbsp; " +
+                  "SPACE interact &nbsp;·&nbsp; T wireframe/solid &nbsp;·&nbsp; M minimap" : "");
 }
 setHelp();
 let last = performance.now(), fps = 60, statTimer = 0;
