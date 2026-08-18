@@ -138,7 +138,7 @@ const MAT = {
   4:  { name: "STALL",      h: 0.85, bank: 3, ramp: "··,,xxXX##▒█" },
   5:  { name: "SKYLINE",    h: 5.0,  bank: 4, ramp: "····..::::░▒" },
   6:  { name: "DUMPSTER",   h: 0.62, bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "Rain and flattened cardboard. Something metal underneath." } },
+        prop: { text: "Rain and flattened cardboard.", action: "search" } },
   7:  { name: "SHOP DOOR",  h: 1.9,  bank: 5, ramp: "··..::░░▒▒▓█",
         prop: { text: "THE FIX — your shop." },
         portal: { map: "shop_interior", x: 2.6, y: 3.5, a: 0 } },
@@ -216,6 +216,7 @@ function travelTo(portal) {
   player.a = portal.a;
   talk = null;
   if (talkEl) talkEl.style.display = "none";
+  diag = null;                          // the bench does not follow you
   focusCell = -1; focusType = 0; flashType = 0;
   msgUntil = 0;
   if (msgEl) msgEl.style.opacity = "0";
@@ -371,7 +372,8 @@ if (DEV_KEYS) {
         }
       }
     }
-    if (e.code === "KeyT") showFill = !showFill;
+    if (e.code === "Escape" && diag) closeDiagnostic();
+  if (e.code === "KeyT") showFill = !showFill;
     if (e.code === "KeyM") showMap  = !showMap;
     if (e.code.indexOf("Arrow") === 0 || e.code === "Space") e.preventDefault();
   });
@@ -505,7 +507,7 @@ function free(nx, ny) {
 }
 
 function update(dt) {
-  if (talk) { lookDelta = 0; return; }   // dialogue holds you in place
+  if (talk || diag) { lookDelta = 0; return; }   // dialogue and the bench hold you in place
   let turn = 0, fwd = 0, strafe = 0;
   if (down("KeyA", "ArrowLeft"))  turn -= 1;
   if (down("KeyD", "ArrowRight")) turn += 1;
@@ -571,7 +573,7 @@ function targetAt(col, row) {
 }
 
 function updateFocus() {
-  if (talk) { if (promptEl.textContent) promptEl.textContent = ""; return; }
+  if (talk || diag) { if (promptEl.textContent) promptEl.textContent = ""; return; }
   const who = npcInView();
   const t = who ? null : targetAt(COLS >> 1, null);
   focusCell = t ? t.cell : -1;
@@ -592,7 +594,14 @@ function interact(t) {
   if (!mat.prop) return;
   if (mat.prop.action === "workbench") {
     flashType = t.type; flashUntil = nowMs + 260;
-    showJobQueue();
+    const job = jobs.find ? jobs.find(function (j) { return j.state !== "done"; }) : null;
+    if (job && job.device) openDiagnostic(job);
+    else showJobQueue();
+    return;
+  }
+  if (mat.prop.action === "search") {
+    flashType = t.type; flashUntil = nowMs + 260;
+    searchDumpster();
     return;
   }
   flashType  = t.type;                   // tapping off-centre still highlights it
@@ -664,6 +673,7 @@ window.onWorldTap = function (ev) {
 };
 
 function fireWorldTap(px, py) {
+  if (diag) { diagTap(px, py); return null; }
   if (talk) { advanceDialogue(); return null; }
 
   const hit = npcAtPixel(px, py);
@@ -695,7 +705,12 @@ const DIALOGUE = {
     ],
     effect: function () {
       flags.ilic_intro_done = true;
-      jobs.push({ id: "lamp_repair", title: "Lamp — Mr Ilić", giver: "ilic", state: "accepted" });
+      const faults = ["cord", "switch", "bulb"];
+      jobs.push({
+        id: "lamp_repair", title: "Lamp — Mr Ilić", giver: "ilic",
+        device: "lamp", fault: faults[Math.floor(Math.random() * faults.length)],
+        state: "accepted"
+      });
       say("Job added: Lamp — Mr Ilić");
     }
   },
@@ -777,6 +792,124 @@ function showJobQueue() {
   if (!jobs.length) { say("Workbench. Nothing in the queue yet."); return; }
   const lines = jobs.map(function (j, i) { return (i + 1) + ". " + j.title + " — " + j.state; });
   say("JOB QUEUE  ·  " + lines.join("   "));
+}
+
+/* ---------- 5d. PARTS, DEVICES, DIAGNOSTIC ------------------------ *
+ *  Simple tier, per the design doc: the device is a wireframe
+ *  schematic, you probe test points for a binary pass/fail, and when
+ *  you find the dead component you fit a replacement and retest.
+ *
+ *  Devices are data. Schematic geometry is in a 0..1 box so it scales
+ *  to any panel size; adding a second device is a new DEVICES entry.
+ * ------------------------------------------------------------------- */
+const PARTS = {
+  lamp_cord:  { name: "Lamp cord" },
+  switch:     { name: "Switch" },
+  cheap_bulb: { name: "Bulb" },
+  wire:       { name: "Wire" },
+  screws:     { name: "Screws" }
+};
+const inventory = {};
+function have(part)  { return (inventory[part] || 0) > 0; }
+function give(part)  { inventory[part] = (inventory[part] || 0) + 1; }
+function take(part)  { if (have(part)) inventory[part]--; }
+
+const DEVICES = {
+  lamp: {
+    name: "TABLE LAMP",
+    /* line segments and shapes, all in a 0..1 box */
+    wires: [
+      [[0.12, 0.64], [0.44, 0.64]],
+      [[0.46, 0.64], [0.64, 0.64]],
+      [[0.64, 0.64], [0.82, 0.64]],
+      [[0.82, 0.64], [0.82, 0.50]]
+    ],
+    plug: [0.12, 0.64],
+    sw:   [0.45, 0.64],
+    bulb: [0.82, 0.38, 0.085],
+    points: [
+      { id: "plug",   label: "PLUG",   x: 0.12, y: 0.64, part: null },
+      { id: "cord",   label: "CORD",   x: 0.29, y: 0.64, part: "lamp_cord" },
+      { id: "switch", label: "SWITCH", x: 0.45, y: 0.64, part: "switch" },
+      { id: "socket", label: "SOCKET", x: 0.70, y: 0.64, part: null },
+      { id: "bulb",   label: "BULB",   x: 0.82, y: 0.38, part: "cheap_bulb" }
+    ]
+  }
+};
+
+/* Scavenge pools. Weights are relative; "nothing" is a real outcome. */
+const SCAVENGE = {
+  alley_dumpster: [
+    { part: "lamp_cord",  weight: 22 },
+    { part: "switch",     weight: 22 },
+    { part: "cheap_bulb", weight: 22 },
+    { part: "wire",       weight: 12 },
+    { part: "screws",     weight: 12 },
+    { part: null,         weight: 20 }
+  ]
+};
+
+function rollScavenge(poolId) {
+  const pool = SCAVENGE[poolId];
+  let total = 0;
+  for (let i = 0; i < pool.length; i++) total += pool[i].weight;
+  let r = Math.random() * total;
+  for (let i = 0; i < pool.length; i++) {
+    r -= pool[i].weight;
+    if (r <= 0) return pool[i].part;
+  }
+  return null;
+}
+
+function searchDumpster() {
+  const part = rollScavenge("alley_dumpster");
+  if (!part) { say("Nothing but junk today."); return; }
+  give(part);
+  say("Found: " + PARTS[part].name);
+}
+
+/* ---- the diagnostic itself ---- */
+let diag = null;   // { job, device, fault, tested, stage }
+
+/* Probe results live on the job, so walking away and coming back
+   resumes the diagnosis instead of starting it over. */
+function openDiagnostic(job) {
+  const device = DEVICES[job.device];
+  if (!device) return;
+  if (!job.tested) job.tested = {};
+  let stage = "probe";
+  if (job.state === "ready") stage = "fixed";
+  else if (job.tested[job.fault] === "fail") stage = "diagnosed";
+  diag = { job: job, device: device, fault: job.fault, tested: job.tested, stage: stage };
+  if (stage === "fixed") markAllPass();
+}
+
+function markAllPass() {
+  const pts = diag.device.points;
+  for (let i = 0; i < pts.length; i++) diag.tested[pts[i].id] = "pass";
+}
+
+function closeDiagnostic() { diag = null; }
+
+/* A probe, or — once the fault is known — fitting the new part. */
+function diagPoint(pt) {
+  if (!diag) return;
+
+  if (diag.stage === "probe") {
+    const failed = pt.id === diag.fault;
+    diag.tested[pt.id] = failed ? "fail" : "pass";
+    if (failed) diag.stage = "diagnosed";
+    return;
+  }
+
+  if (diag.stage === "diagnosed" && pt.id === diag.fault) {
+    if (!have(pt.part)) return;   // the panel status line says what is needed
+    take(pt.part);
+    markAllPass();
+    diag.stage = "fixed";
+    diag.job.state = "ready";
+    say(diag.device.name + " works. Take it back to Mr Ilić.");
+  }
 }
 
 /* ---------- 6. RAYCAST (DDA) -------------------------------------- *
@@ -1116,7 +1249,7 @@ function blit() {
 
 /* ---------- 10. JOYSTICK OVERLAY ---------------------------------- */
 function drawJoystick() {
-  if (talk) return;
+  if (talk || diag) return;
   const r = joy.radius;
   const bx = joy.homeX, by = joy.homeY;
 
@@ -1156,6 +1289,153 @@ function drawJoystick() {
   ctx.fill();
   ctx.stroke();
   ctx.restore();
+}
+
+/* ---------- 10b. DIAGNOSTIC SCREEN -------------------------------- *
+ *  Drawn as vectors rather than characters: it is a readout, not part
+ *  of the world, and the wireframe reads cleanly at any size. Hit
+ *  targets are generous — this has to work under a thumb.
+ * ------------------------------------------------------------------ */
+let diagRect = null, diagHits = [], diagCloseRect = null;
+
+function diagLayout() {
+  const w = Math.min(W * 0.92, 720);
+  const h = Math.min(H * 0.66, 430);
+  return { x: (W - w) / 2, y: (H - h) / 2, w: w, h: h };
+}
+
+function drawDiagnostic() {
+  if (!diag) { diagRect = null; diagHits = []; return; }
+  const r = diagLayout();
+  diagRect = r;
+  diagHits = [];
+
+  ctx.save();
+  ctx.fillStyle = "rgba(2,6,10,0.86)";           // dim the world behind
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "rgba(4,12,18,0.96)";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = "rgba(120,220,240,0.45)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+
+  const pad = Math.round(r.w * 0.045);
+  const fs1 = Math.max(11, Math.round(r.w / 46));
+  ctx.font = fs1 + "px " + FONT_STACK;
+  ctx.textBaseline = "top";
+
+  ctx.fillStyle = "#8fe8f5";
+  ctx.fillText("DIAGNOSTIC — " + diag.device.name, r.x + pad, r.y + pad);
+
+  // close button
+  const cs = fs1 * 1.9;
+  diagCloseRect = { x: r.x + r.w - pad - cs, y: r.y + pad - 4, w: cs, h: cs };
+  ctx.strokeStyle = "rgba(150,220,235,0.5)";
+  ctx.strokeRect(diagCloseRect.x + 0.5, diagCloseRect.y + 0.5, cs, cs);
+  ctx.fillStyle = "#9fe9f5";
+  ctx.fillText("×", diagCloseRect.x + cs * 0.34, diagCloseRect.y + cs * 0.12);
+
+  // schematic area
+  const sx = r.x + pad, sy = r.y + pad * 2.6;
+  const sw = r.w - pad * 2, sh = r.h - pad * 4.8;
+  const px = function (u) { return sx + u * sw; };
+  const py = function (v) { return sy + v * sh; };
+
+  const dev = diag.device;
+  ctx.strokeStyle = "rgba(110,200,225,0.75)";
+  ctx.lineWidth = Math.max(1.2, r.w / 420);
+
+  ctx.beginPath();
+  for (let i = 0; i < dev.wires.length; i++) {
+    const seg = dev.wires[i];
+    ctx.moveTo(px(seg[0][0]), py(seg[0][1]));
+    ctx.lineTo(px(seg[1][0]), py(seg[1][1]));
+  }
+  ctx.stroke();
+
+  // plug body
+  const pw = sw * 0.05, ph = sh * 0.09;
+  ctx.strokeRect(px(dev.plug[0]) - pw, py(dev.plug[1]) - ph / 2, pw, ph);
+  // switch body
+  const bw = sw * 0.035;
+  ctx.strokeRect(px(dev.sw[0]) - bw / 2, py(dev.sw[1]) - bw / 2, bw, bw);
+  // bulb
+  ctx.beginPath();
+  ctx.arc(px(dev.bulb[0]), py(dev.bulb[1]), sw * dev.bulb[2] * 0.55, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // test points
+  const rad = Math.max(9, sw * 0.026);
+  for (let i = 0; i < dev.points.length; i++) {
+    const pt = dev.points[i];
+    const cx = px(pt.x), cy = py(pt.y);
+    const state = diag.tested[pt.id];
+    const isFault = diag.stage !== "probe" && pt.id === diag.fault;
+
+    let col = "rgba(140,215,235,0.85)";
+    if (state === "pass") col = "rgba(120,240,170,0.95)";
+    if (state === "fail") col = "rgba(255,110,110,0.95)";
+
+    ctx.strokeStyle = col;
+    ctx.lineWidth = isFault && diag.stage === "diagnosed" ? 3 : 1.6;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (state) {
+      ctx.fillStyle = col;
+      ctx.font = Math.round(rad * 1.5) + "px " + FONT_STACK;
+      ctx.fillText(state === "pass" ? "✓" : "✕", cx - rad * 0.5, cy - rad * 0.78);
+    }
+
+    ctx.fillStyle = state ? col : "rgba(120,190,210,0.7)";
+    ctx.font = Math.max(9, Math.round(fs1 * 0.82)) + "px " + FONT_STACK;
+    ctx.fillText(pt.label, cx - rad - 2, cy + rad + 4);
+
+    diagHits.push({ pt: pt, x: cx, y: cy, r: rad * 2.2 });
+  }
+
+  // status line
+  let status, colour = "#9fe9f5";
+  if (diag.stage === "probe") {
+    status = "Tap a test point to probe it.";
+  } else if (diag.stage === "diagnosed") {
+    const pt = dev.points.filter(function (p) { return p.id === diag.fault; })[0];
+    const part = PARTS[pt.part];
+    status = have(pt.part)
+      ? pt.label + " is dead. Tap it again to fit the " + part.name.toLowerCase() + "."
+      : pt.label + " is dead. You need a " + part.name.toLowerCase() + " — try the alley dumpster.";
+    colour = have(pt.part) ? "#ffd06a" : "#ff8f8f";
+  } else {
+    status = "All points pass. Take it back to Mr Ilić.";
+    colour = "#8fe6b0";
+  }
+  ctx.fillStyle = colour;
+  ctx.font = fs1 + "px " + FONT_STACK;
+  ctx.fillText(status, r.x + pad, r.y + r.h - pad - fs1 * 1.2);
+
+  ctx.restore();
+}
+
+/* Route a tap inside the panel. Returns true if it consumed the tap. */
+function diagTap(px2, py2) {
+  if (!diag) return false;
+  if (diagCloseRect &&
+      px2 >= diagCloseRect.x && px2 <= diagCloseRect.x + diagCloseRect.w &&
+      py2 >= diagCloseRect.y && py2 <= diagCloseRect.y + diagCloseRect.h) {
+    closeDiagnostic();
+    return true;
+  }
+  for (let i = 0; i < diagHits.length; i++) {
+    const h = diagHits[i];
+    if (Math.hypot(px2 - h.x, py2 - h.y) <= h.r) { diagPoint(h.pt); return true; }
+  }
+  if (diagRect && (px2 < diagRect.x || px2 > diagRect.x + diagRect.w ||
+                   py2 < diagRect.y || py2 > diagRect.y + diagRect.h)) {
+    closeDiagnostic();                    // tapping outside backs out
+  }
+  return true;
 }
 
 /* ---------- 11. MINIMAP ------------------------------------------- */
@@ -1238,13 +1518,16 @@ function frame(now) {
   castColumns(dirX, dirY, planeX, planeY);
   computeSprites(dirX, dirY, planeX, planeY);
   updateFocus();
+  if (diag && msgUntil) { msgEl.style.opacity = "0"; msgUntil = 0; }
   if (msgUntil && now > msgUntil) { msgEl.style.opacity = "0"; msgUntil = 0; }
   drawWalls();
   drawGrid(dirX, dirY, planeX, planeY);
   drawNPCs();
+  helpEl.style.visibility = (talk || diag) ? "hidden" : "";
   blit();
   drawJoystick();
-  if (showMap) drawMinimap();
+  if (showMap && !diag) drawMinimap();
+  drawDiagnostic();
 
   statTimer += dt;
   if (statTimer > 0.15) {
