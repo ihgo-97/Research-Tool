@@ -25,6 +25,17 @@
                   text-align:center; font-size:13px; }
   /* both sit over lit walls, so they carry their own dark outline */
   #prompt { bottom:30%; color:#ffd9a0; text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000; }
+  #talk {
+    position:fixed; left:50%; transform:translateX(-50%); bottom:6%;
+    pointer-events:none; user-select:none;
+    width:min(46em, 92vw); display:none; box-sizing:border-box;
+    padding:14px 18px 12px; border:1px solid rgba(120,220,240,.35);
+    background:rgba(4,10,16,.92); border-radius:3px;
+    font:14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    color:#dff2f7; text-shadow:0 0 6px rgba(0,0,0,.9);
+  }
+  #talkName { color:#ffd06a; letter-spacing:1px; font-size:12px; margin-bottom:6px; }
+  #talkMore { color:#4e8d99; font-size:11px; text-align:right; margin-top:8px; }
   #msg {
     bottom:23%; color:#cdf4fb; padding:0 18px;
     text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000;
@@ -39,6 +50,11 @@
 <div class="hud" id="help"></div>
 <div class="hud" id="prompt"></div>
 <div class="hud" id="msg"></div>
+<div id="talk">
+  <div id="talkName"></div>
+  <div id="talkLine"></div>
+  <div id="talkMore"></div>
+</div>
 
 <script>
 "use strict";
@@ -49,85 +65,166 @@
  *  glyph density + brightness fall off with distance.
  * ------------------------------------------------------------------ */
 
-/* ---------- 1. WORLD MAP ------------------------------------------ *
- *  Section 6 scope: one and a bit city blocks, exteriors only.
- *  The shop and Mrs Ilic's face each other across a street, with the
- *  alley and its dumpster cut in between them, and a cross street
- *  running south past the rival's stall. Buildings are solid — no
- *  interiors yet, the doors are markers.
- *
- *  Edit the art directly; each row must stay the same length.
- *    .  street / alley / walkable      #  plain block wall
- *    S  THE FIX (your shop)            s  your shop door
- *    I  Mrs Ilic's building            i  her door
- *    V  rival's stall (low)            D  dumpster (low)
- *    B  city backdrop (tall, distant, seals the playable area)
+/* ---------- 1. WORLD ---------------------------------------------- *
+ *  Maps are ASCII art with one shared legend. Each row of a map must
+ *  stay the same length. Doors that lead somewhere are portals: solid,
+ *  tap to travel. Doorways inside one map are just gaps (legend 0).
  * ------------------------------------------------------------------ */
-const MAP_ART = [
-  "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-  "B#####SSSSSSSSS.D.IIIIIIIIII##....#########B",
-  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-  "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-  "B#####SSSSssSSS...IIIIiiIIII##....#########B",
-  "B..........................................B",
-  "B..........................................B",
-  "B..........................................B",
-  "B.....................VVVV.................B",
-  "B.....................VVVV.................B",
-  "B#############################....#########B",
-  "B#############################....#########B",
-  "B#############################....#########B",
-  "B#############################....#########B",
-  "B#############################....#########B",
-  "B#############################....#########B",
-  "B#############################....#########B",
-  "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-];
+const MAPS = {
 
-/* Materials. h is wall height in map units with the eye at 0.5, so
-   anything under ~0.9 can be seen over. ramp is that surface's glyph
-   ramp, sparse to dense; bank picks its colour block in PALETTE. */
-const MAT = {
-  1: { name: "WALL",      h: 2.6, bank: 0, ramp: "··..::░░▒▒▓█" },
-  2: { name: "THE FIX",   h: 1.9, bank: 1, ramp: "··--==##%%@█" },
-  3: { name: "ILIC BLDG", h: 2.2, bank: 2, ramp: "··''::!!||║█" },
-  4: { name: "STALL",     h: 0.85, bank: 3, ramp: "··,,xxXX##▒█" },
-  5: { name: "SKYLINE",   h: 5.0, bank: 4, ramp: "····..::::░▒" },
-  6: { name: "DUMPSTER",  h: 0.62, bank: 5, ramp: "··..::░░▒▒▓█",
-       prop: { text: "Rain and flattened cardboard. Something metal underneath." } },
-  7: { name: "SHOP DOOR", h: 1.9, bank: 5, ramp: "··..::░░▒▒▓█",
-       prop: { text: "THE FIX — your shop. Shut for now; the inside comes later." } },
-  8: { name: "ILIC DOOR", h: 2.2, bank: 5, ramp: "··..::░░▒▒▓█",
-       prop: { text: "Mr Ilic's door. A lamp with a frayed cord sits just inside." } }
+  /* District 1 street — the block outside your shop. */
+  district1_street: {
+    name: "District 1 — street",
+    art: [
+      "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+      "B#####SSSSSSSSS.D.IIIIIIIIII##....#########B",
+      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
+      "B#####SSSSssSSS...IIIIiiIIII##....#########B",
+      "B..........................................B",
+      "B..........................................B",
+      "B..........................................B",
+      "B.....................VVVV.................B",
+      "B.....................VVVV.................B",
+      "B#############################....#########B",
+      "B#############################....#########B",
+      "B#############################....#########B",
+      "B#############################....#########B",
+      "B#############################....#########B",
+      "B#############################....#########B",
+      "B#############################....#########B",
+      "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    ]
+  },
+
+  /* THE FIX, inside. Public strip at the top, counter across the width
+     with a flap at the near end, work zone behind it, storage through
+     the gap bottom right, backroom door locked. Transcribed from the
+     District 1 shop floor plan. */
+  shop_interior: {
+    name: "THE FIX — shop floor",
+    art: [
+      "################",
+      "#..............#",
+      "#.r..........r.#",
+      "X..............#",
+      "#..............#",
+      "#f=============#",
+      "#..............#",
+      "#...W..........#",
+      "#..........p...#",
+      "#..............#",
+      "######L#+#######",
+      "########.......#",
+      "########..h....#",
+      "########.......#",
+      "################"
+    ]
+  }
 };
-const LEGEND = { ".": 0, "#": 1, "S": 2, "I": 3, "V": 4, "B": 5, "D": 6, "s": 7, "i": 8 };
+
+/* Materials. h is height in map units with the eye at 0.5, so anything
+   under ~0.9 can be seen over. ramp is the surface's glyph ramp, sparse
+   to dense; bank picks its colour block in PALETTE. prop makes it
+   interactive; portal makes it a door you tap to travel through. */
+const MAT = {
+  1:  { name: "WALL",       h: 2.6,  bank: 0, ramp: "··..::░░▒▒▓█" },
+  2:  { name: "THE FIX",    h: 1.9,  bank: 1, ramp: "··--==##%%@█" },
+  3:  { name: "ILIC BLDG",  h: 2.2,  bank: 2, ramp: "··''::!!||║█" },
+  4:  { name: "STALL",      h: 0.85, bank: 3, ramp: "··,,xxXX##▒█" },
+  5:  { name: "SKYLINE",    h: 5.0,  bank: 4, ramp: "····..::::░▒" },
+  6:  { name: "DUMPSTER",   h: 0.62, bank: 5, ramp: "··..::░░▒▒▓█",
+        prop: { text: "Rain and flattened cardboard. Something metal underneath." } },
+  7:  { name: "SHOP DOOR",  h: 1.9,  bank: 5, ramp: "··..::░░▒▒▓█",
+        prop: { text: "THE FIX — your shop." },
+        portal: { map: "shop_interior", x: 2.6, y: 3.5, a: 0 } },
+  8:  { name: "ILIC DOOR",  h: 2.2,  bank: 5, ramp: "··..::░░▒▒▓█",
+        prop: { text: "Mr Ilic's door. A lamp with a frayed cord sits just inside." } },
+
+  /* shop interior */
+  9:  { name: "WALL",       h: 2.4,  bank: 0, ramp: "··..::░░▒▒▓█" },
+  10: { name: "COUNTER",    h: 0.9,  bank: 1, ramp: "··--==##%%@█" },
+  11: { name: "RACK",       h: 1.6,  bank: 1, ramp: "··--==##%%@█" },
+  12: { name: "WORKBENCH",  h: 0.8,  bank: 5, ramp: "··..::░░▒▒▓█",
+        prop: { text: "", action: "workbench" } },
+  13: { name: "PHONE",      h: 1.1,  bank: 5, ramp: "··..::░░▒▒▓█",
+        prop: { text: "The shop phone. Parts ordering comes later." } },
+  14: { name: "BACKROOM",   h: 2.4,  bank: 5, ramp: "··..::░░▒▒▓█",
+        prop: { text: "Locked. Your father's old room, by the look of the dust." } },
+  15: { name: "SHELF",      h: 1.8,  bank: 1, ramp: "··--==##%%@█" },
+  16: { name: "FRONT DOOR", h: 2.4,  bank: 5, ramp: "··..::░░▒▒▓█",
+        prop: { text: "Out to the street." },
+        portal: { map: "district1_street", x: 10.5, y: 9.6, a: Math.PI / 2 } }
+};
+
+/* One legend for every map. 'f' and '+' are doorways — gaps you walk
+   through, not objects, so they parse to plain floor. */
+const LEGEND = {
+  ".": 0, "#": 1, "S": 2, "I": 3, "V": 4, "B": 5, "D": 6, "s": 7, "i": 8,
+  "w": 9, "=": 10, "r": 11, "W": 12, "p": 13, "L": 14, "h": 15, "X": 16,
+  "f": 0, "+": 0
+};
 const REACH = 2.6;          // how close you must be to interact, in map cells
 
-const MAP = MAP_ART.map(function (row, y) {
-  return row.split("").map(function (ch, x) {
-    if (!(ch in LEGEND)) throw new Error("unknown map glyph '" + ch + "' at " + x + "," + y);
-    return LEGEND[ch];
+/* Interior maps use '#' for their own walls, which the legend maps to
+   the exterior wall material — remap those to the shorter indoor one. */
+function parseMap(def, indoor) {
+  const grid = def.art.map(function (row, y) {
+    return row.split("").map(function (ch, x) {
+      if (!(ch in LEGEND)) throw new Error("unknown map glyph '" + ch + "' at " + x + "," + y);
+      const v = LEGEND[ch];
+      return (indoor && v === 1) ? 9 : v;
+    });
   });
-});
-const MAP_H = MAP.length;
-const MAP_W = MAP[0].length;
-MAP.forEach(function (row, y) {
-  if (row.length !== MAP_W) throw new Error("map row " + y + " is " + row.length + ", expected " + MAP_W);
+  const w = grid[0].length;
+  grid.forEach(function (row, y) {
+    if (row.length !== w) throw new Error(def.name + " row " + y + " is " + row.length + ", expected " + w);
+  });
+  return { grid: grid, w: w, h: grid.length, name: def.name, edge: indoor ? 9 : 5 };
+}
+
+Object.keys(MAPS).forEach(function (id) {
+  MAPS[id].parsed = parseMap(MAPS[id], id !== "district1_street");
+  MAPS[id].id = id;
 });
 
+let world = MAPS.district1_street.parsed;   // the map we are standing in
+let worldId = "district1_street";
+let MAP_W = world.w, MAP_H = world.h;
+
 function cellAt(cx, cy) {
-  if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return 5;
-  return MAP[cy][cx];
+  if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return world.edge;
+  return world.grid[cy][cx];
 }
 function isWall(cx, cy) { return cellAt(cx, cy) !== 0; }   // every prop is solid
+
+/* Step through a portal: swap the grid, move the player, reset state
+   that belonged to the old map. */
+function travelTo(portal) {
+  const dest = MAPS[portal.map];
+  if (!dest) return;
+  world   = dest.parsed;
+  worldId = dest.id;
+  MAP_W   = world.w;
+  MAP_H   = world.h;
+  player.x = portal.x;
+  player.y = portal.y;
+  player.a = portal.a;
+  talk = null;
+  if (talkEl) talkEl.style.display = "none";
+  focusCell = -1; focusType = 0; flashType = 0;
+  msgUntil = 0;
+  if (msgEl) msgEl.style.opacity = "0";
+  say(dest.name);
+}
 function matOf(v) { return MAT[v] || MAT[1]; }
 
 /* ---------- 2. PLAYER --------------------------------------------- */
-const player = { x: 10.5, y: 12.1, a: -35 * Math.PI / 180 };  // on the street outside your shop
+const player = { x: 10.5, y: 11.6, a: -80 * Math.PI / 180 };  // on the street outside your shop
 
 const FOV        = 66 * Math.PI / 180;
 const TAN_HALF   = Math.tan(FOV / 2);
@@ -155,7 +252,7 @@ let mapScale = 4, mapPanelH = 0;   // minimap geometry, so the HUD can dodge it
 let COLS = 0, ROWS = 0, offX = 0, offY = 0;
 
 let fbChar, fbShade;                       // character framebuffer
-let colTop, colBottom;                     // nearest surface per column
+let colTop, colBottom, colDepth;           // nearest surface per column
 let slabCount, slabDist, slabTop, slabBottom, slabCell, slabSide, slabType;
 let slabRayX, slabRayY;                    // ray direction per column, for tap hits
 let prevCX, prevCY;                        // floor-grid sampling scratch
@@ -175,7 +272,8 @@ const BANKS = [
   [280, 62, 11, 64],   // 2 Mrs Ilic's       — violet
   [ 52, 88, 12, 62],   // 3 rival's stall    — yellow
   [218, 55,  6, 30],   // 4 skyline          — stays dim, reads as distance
-  [ 38, 95, 11, 58]    // 5 interactive      — amber
+  [ 38, 95, 11, 58],   // 5 interactive      — amber
+  [ 26, 55, 20, 86]    // 6 people           — warm, brighter than any surface
 ];
 const PALETTE = [];
 BANKS.forEach(function (bnk) {
@@ -216,6 +314,7 @@ function layout() {
 
   colTop    = new Int32Array(COLS);
   colBottom = new Int32Array(COLS);
+  colDepth  = new Float32Array(COLS);
 
   const cells = COLS * MAX_SLABS;
   slabCount  = new Uint8Array(COLS);
@@ -263,7 +362,14 @@ if (DEV_KEYS) {
   window.addEventListener("keydown", function (e) {
     keys[e.code] = true;
     if (e.code === "Space" || e.code === "KeyF") {
-      if (!e.repeat) { const t = targetAt(COLS >> 1, null); if (t) interact(t); }
+      if (!e.repeat) {
+        if (talk) advanceDialogue();
+        else {
+          const who = npcInView();
+          if (who) startDialogue(who.npc);
+          else { const t = targetAt(COLS >> 1, null); if (t) interact(t); }
+        }
+      }
     }
     if (e.code === "KeyT") showFill = !showFill;
     if (e.code === "KeyM") showMap  = !showMap;
@@ -399,6 +505,7 @@ function free(nx, ny) {
 }
 
 function update(dt) {
+  if (talk) { lookDelta = 0; return; }   // dialogue holds you in place
   let turn = 0, fwd = 0, strafe = 0;
   if (down("KeyA", "ArrowLeft"))  turn -= 1;
   if (down("KeyD", "ArrowRight")) turn += 1;
@@ -447,7 +554,8 @@ function slabAt(col, row) {
   const at = row === null ? ROWS >> 1 : row;
   for (let k = 0; k < slabCount[col]; k++) {
     const i = base + k;
-    const tol = matOf(slabType[i]).prop ? 2 : 0;   // props get a forgiving edge
+    const m = matOf(slabType[i]);
+    const tol = (m.prop || m.portal) ? 2 : 0;   // props get a forgiving edge
     if (at >= slabTop[i] - tol && at <= slabBottom[i] + tol) return i;
   }
   return -1;
@@ -456,22 +564,37 @@ function slabAt(col, row) {
 function targetAt(col, row) {
   const i = slabAt(col, row);
   if (i < 0) return null;
-  if (!matOf(slabType[i]).prop) return null;
+  const m = matOf(slabType[i]);
+  if (!m.prop && !m.portal) return null;
   if (slabDist[i] > REACH) return null;
   return { type: slabType[i], cell: slabCell[i] };
 }
 
 function updateFocus() {
-  const t = targetAt(COLS >> 1, null);
+  if (talk) { if (promptEl.textContent) promptEl.textContent = ""; return; }
+  const who = npcInView();
+  const t = who ? null : targetAt(COLS >> 1, null);
   focusCell = t ? t.cell : -1;
   focusType = t ? t.type : 0;
-  const label = t ? "▸ " + matOf(t.type).name : "";
+  const label = who ? "▸ " + who.npc.name : (t ? "▸ " + matOf(t.type).name : "");
   if (promptEl.textContent !== label) promptEl.textContent = label;
+}
+
+function say(text) {
+  msgEl.textContent = text;
+  msgEl.style.opacity = "1";
+  msgUntil = nowMs + 3200;
 }
 
 function interact(t) {
   const mat = matOf(t.type);
+  if (mat.portal) { travelTo(mat.portal); return; }
   if (!mat.prop) return;
+  if (mat.prop.action === "workbench") {
+    flashType = t.type; flashUntil = nowMs + 260;
+    showJobQueue();
+    return;
+  }
   flashType  = t.type;                   // tapping off-centre still highlights it
   flashUntil = nowMs + 260;
   msgUntil   = nowMs + 3200;
@@ -490,7 +613,7 @@ function worldTapEvent(px, py) {
 
   const rx = slabRayX[col], ry = slabRayY[col];
   const ev = {
-    kind: "", material: null, height: 0, distance: 0, inReach: false, prop: false,
+    kind: "", material: null, height: 0, distance: 0, inReach: false, prop: false, portal: null,
     world: null, cell: null,
     screen: { x: Math.round(px), y: Math.round(py), col: col, row: row },
     ray: { x: rx, y: ry },
@@ -503,10 +626,11 @@ function worldTapEvent(px, py) {
   if (i >= 0) {
     const mat = matOf(slabType[i]);
     dist = slabDist[i];
-    ev.kind = mat.prop ? "prop" : "wall";
+    ev.kind = mat.portal ? "door" : (mat.prop ? "prop" : "wall");
     ev.material = mat.name;
     ev.height = mat.h;
     ev.prop = !!mat.prop;
+    ev.portal = mat.portal ? mat.portal.map : null;
     ev.side = slabSide[i];
   } else {
     const p = row - ROWS / 2;             // above or below the horizon
@@ -534,15 +658,125 @@ window.onWorldTap = function (ev) {
     ev.world ? "@ " + ev.world.x + "," + ev.world.y : "",
     ev.inReach ? "(in reach)" : "(out of reach)", ev);
 
-  if (ev.prop && ev.inReach) {
+  if ((ev.prop || ev.portal) && ev.inReach) {
     interact({ type: ev.cell.value, cell: ev.cell.y * MAP_W + ev.cell.x });
   }
 };
 
 function fireWorldTap(px, py) {
+  if (talk) { advanceDialogue(); return null; }
+
+  const hit = npcAtPixel(px, py);
+  if (hit && hit.dist <= REACH) { startDialogue(hit.npc); return null; }
+
   const ev = worldTapEvent(px, py);
   if (ev && typeof window.onWorldTap === "function") window.onWorldTap(ev);
   return ev;
+}
+
+/* ---------- 5c. STORY STATE, DIALOGUE, JOBS ------------------------ *
+ *  Dialogue is data: a set of lines, an optional rotate flag, and an
+ *  effect that runs when the last line is dismissed. Each NPC has a
+ *  pick() that chooses the right set for the current state, so adding a
+ *  character is content, not code.
+ * ------------------------------------------------------------------- */
+const flags = {};
+const jobs  = [];
+function jobById(id) { for (let i = 0; i < jobs.length; i++) if (jobs[i].id === id) return jobs[i]; return null; }
+
+const DIALOGUE = {
+  ilic_intro: {
+    lines: [
+      "You're your father's son, aren't you? Heard you took over the shop.",
+      "Good. Place was getting dusty. He always said you had hands for this kind of work.",
+      "Matter of fact — my lamp's been dead a week. Cord, switch, something.",
+      "Bring it back to life and I'll make it worth your while.",
+      "Don't know, don't care — that's your department now."
+    ],
+    effect: function () {
+      flags.ilic_intro_done = true;
+      jobs.push({ id: "lamp_repair", title: "Lamp — Mr Ilić", giver: "ilic", state: "accepted" });
+      say("Job added: Lamp — Mr Ilić");
+    }
+  },
+  ilic_bark_generic: {
+    rotate: true,
+    lines: [
+      "Shop still standing? Good sign.",
+      "Don't let the dust win. Dust always wins eventually, but don't help it.",
+      "You look tired. Working, or just bad at sleeping?"
+    ]
+  },
+  ilic_job_pending: {
+    lines: ["Lamp's not going to fix itself. Not that it was doing much before, either."]
+  },
+  ilic_job_complete: {
+    lines: [
+      "Well. Look at that.",
+      "Not bad. Not bad at all.",
+      "Here — for your trouble.",
+      "Don't get used to compliments. That's the last one for a while."
+    ],
+    effect: function () {
+      const job = jobById("lamp_repair");
+      if (job) job.state = "done";
+      flags.ilic_first_job_done = true;
+    }
+  }
+};
+
+const NPC_DIALOGUE = {
+  ilic: function () {
+    if (!flags.ilic_intro_done) return "ilic_intro";
+    const job = jobById("lamp_repair");
+    if (job && job.state === "ready") return "ilic_job_complete";
+    if (job && job.state === "accepted") return "ilic_job_pending";
+    return "ilic_bark_generic";
+  }
+};
+
+const barkIndex = {};
+let talk = null;              // { npc, set, lines, idx }
+
+function startDialogue(npc) {
+  const pick = NPC_DIALOGUE[npc.id];
+  if (!pick) return;
+  const setId = pick();
+  const set = DIALOGUE[setId];
+  if (!set) return;
+
+  let lines = set.lines;
+  if (set.rotate) {                       // barks cycle instead of replaying
+    const i = (barkIndex[setId] || 0) % lines.length;
+    barkIndex[setId] = i + 1;
+    lines = [lines[i]];
+  }
+  talk = { npc: npc, set: set, setId: setId, lines: lines, idx: 0 };
+  renderTalk();
+}
+
+function advanceDialogue() {
+  if (!talk) return;
+  talk.idx++;
+  if (talk.idx < talk.lines.length) { renderTalk(); return; }
+  const set = talk.set;
+  talk = null;
+  talkEl.style.display = "none";
+  if (set.effect) set.effect();
+}
+
+function renderTalk() {
+  talkNameEl.textContent = talk.npc.name;
+  talkLineEl.textContent = talk.lines[talk.idx];
+  talkMoreEl.textContent = talk.idx < talk.lines.length - 1 ? "tap to continue ▸" : "tap to close ▸";
+  talkEl.style.display = "block";
+}
+
+/* ---- jobs on the workbench ---- */
+function showJobQueue() {
+  if (!jobs.length) { say("Workbench. Nothing in the queue yet."); return; }
+  const lines = jobs.map(function (j, i) { return (i + 1) + ". " + j.title + " — " + j.state; });
+  say("JOB QUEUE  ·  " + lines.join("   "));
 }
 
 /* ---------- 6. RAYCAST (DDA) -------------------------------------- *
@@ -619,6 +853,7 @@ function castColumns(dirX, dirY, planeX, planeY) {
     // nearest surface, used by the ground grid and by taps
     colTop[col]    = n ? slabTop[base] : ROWS + 1;
     colBottom[col] = n ? slabBottom[base] : -1;
+    colDepth[col]  = n ? slabDist[base] : Infinity;
   }
 }
 
@@ -627,6 +862,135 @@ function shadeFor(dist, side) {
   let lvl = Math.round((LEVELS - 1) * Math.pow(t, 0.85));
   if (side === 1) lvl -= 2;                 // N/S faces read darker
   return Math.max(0, Math.min(LEVELS - 1, lvl));
+}
+
+/* ---------- 6b. PEOPLE (BILLBOARD SPRITES) ------------------------ *
+ *  Characters are flat sprites that always face the camera, drawn with
+ *  the standard inverse-camera transform and depth-tested per column
+ *  against the nearest wall, so they are hidden correctly when they
+ *  stand behind something.
+ *
+ *  The art is a mask: '#' takes the ramp glyph for its shade, '.' is
+ *  transparent. Keeping it a mask rather than fixed characters means a
+ *  sprite dims and thins with distance exactly like a wall does.
+ * ------------------------------------------------------------------ */
+const SPRITE_ART = {
+  man: [
+    "..###..",
+    ".#####.",
+    ".#####.",
+    "..###..",
+    ".#####.",
+    "#######",
+    "#######",
+    "#.###.#",
+    "..###..",
+    "..#.#..",
+    "..#.#..",
+    "..#.#..",
+    ".##.##."
+  ]
+};
+
+/* Eye height is 0.5 map units, so a person stands about 0.6 tall. */
+const NPCS = [
+  { id: "ilic", name: "MR ILIĆ", map: "district1_street",
+    x: 22.5, y: 9.7, height: 0.62, art: "man", bank: 6 }
+];
+
+function npcsHere() {
+  const out = [];
+  for (let i = 0; i < NPCS.length; i++) if (NPCS[i].map === worldId) out.push(NPCS[i]);
+  return out;
+}
+
+/* Screen box for a sprite, or null when it is behind the camera or off
+   the sides. Also records the box so a tap can hit-test against it. */
+function spriteBox(npc, dirX, dirY, planeX, planeY) {
+  const relX = npc.x - player.x, relY = npc.y - player.y;
+
+  // inverse of the [plane, dir] matrix
+  const invDet = 1 / (planeX * dirY - dirX * planeY);
+  const tx = invDet * (dirY * relX - dirX * relY);        // sideways
+  const ty = invDet * (-planeY * relX + planeX * relY);   // depth
+  if (ty <= 0.15) return null;
+
+  const art = SPRITE_ART[npc.art];
+  const artH = art.length, artW = art[0].length;
+
+  const proj = ROWS / ty;
+  const bottom = ROWS / 2 + 0.5 * proj;                   // stands on the ground
+  const hRows  = npc.height * proj;
+  const top    = bottom - hRows;
+  // keep the drawn proportions square-ish on screen, not in cells
+  const wCols  = hRows * (artW / artH) * (cellH / cellW);
+  const cx     = (COLS / 2) * (1 + tx / ty);
+
+  return {
+    npc: npc, dist: ty, art: art,
+    x0: Math.round(cx - wCols / 2), x1: Math.round(cx + wCols / 2),
+    y0: Math.round(top), y1: Math.round(bottom)
+  };
+}
+
+let spriteBoxes = [];
+
+function computeSprites(dirX, dirY, planeX, planeY) {
+  spriteBoxes = [];
+  const list = npcsHere();
+  for (let i = 0; i < list.length; i++) {
+    const b = spriteBox(list[i], dirX, dirY, planeX, planeY);
+    if (b) spriteBoxes.push(b);
+  }
+  spriteBoxes.sort(function (a, b) { return b.dist - a.dist; });   // far to near
+}
+
+function drawNPCs() {
+  for (let i = 0; i < spriteBoxes.length; i++) {
+    const b = spriteBoxes[i];
+    const bank = b.npc.bank * BANK;
+    const lvl  = shadeFor(b.dist, 0);
+    const glyph = matOf(1).ramp.charAt(lvl);
+    const artH = b.art.length, artW = b.art[0].length;
+    const boxW = Math.max(1, b.x1 - b.x0), boxH = Math.max(1, b.y1 - b.y0);
+
+    for (let col = Math.max(0, b.x0); col < Math.min(COLS, b.x1); col++) {
+      if (b.dist >= colDepth[col]) continue;               // behind a wall
+      const sx = Math.min(artW - 1, Math.floor((col - b.x0) / boxW * artW));
+      for (let row = Math.max(0, b.y0); row < Math.min(ROWS, b.y1); row++) {
+        const sy = Math.min(artH - 1, Math.floor((row - b.y0) / boxH * artH));
+        if (b.art[sy].charAt(sx) === "#") put(col, row, glyph, bank + lvl);
+      }
+    }
+  }
+}
+
+/* Which person is under this pixel, if any? Uses the boxes from the
+   frame just drawn, nearest first. */
+function npcAtPixel(px, py) {
+  const col = Math.floor((px - offX) / cellW);
+  const row = Math.floor((py - offY) / cellH);
+  let best = null;
+  for (let i = 0; i < spriteBoxes.length; i++) {
+    const b = spriteBoxes[i];
+    if (col < b.x0 - 1 || col > b.x1 + 1 || row < b.y0 - 1 || row > b.y1 + 1) continue;
+    if (b.dist >= colDepth[Math.max(0, Math.min(COLS - 1, col))]) continue;
+    if (!best || b.dist < best.dist) best = b;
+  }
+  return best;
+}
+
+/* The person you are looking at, for the focus prompt. */
+function npcInView() {
+  let best = null;
+  for (let i = 0; i < spriteBoxes.length; i++) {
+    const b = spriteBoxes[i];
+    const mid = COLS >> 1;
+    if (mid < b.x0 - 1 || mid > b.x1 + 1) continue;
+    if (b.dist > REACH) continue;
+    if (!best || b.dist < best.dist) best = b;
+  }
+  return best;
 }
 
 /* ---------- 7. DRAW WALLS ----------------------------------------- */
@@ -646,7 +1010,7 @@ function drawWalls() {
 
       // a focused (or just-tapped) prop lifts out of the background —
       // by type, so every cell of a multi-cell prop lights together
-      if (mat.prop && slabDist[i] <= REACH) {
+      if ((mat.prop || mat.portal) && slabDist[i] <= REACH) {
         if (type === flashType && flashUntil > nowMs) lvl = Math.min(LEVELS - 1, lvl + 4);
         else if (type === focusType)                  lvl = Math.min(LEVELS - 1, lvl + 2);
       }
@@ -752,6 +1116,7 @@ function blit() {
 
 /* ---------- 10. JOYSTICK OVERLAY ---------------------------------- */
 function drawJoystick() {
+  if (talk) return;
   const r = joy.radius;
   const bx = joy.homeX, by = joy.homeY;
 
@@ -806,7 +1171,7 @@ function drawMinimap() {
 
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
-      const c = MAP[y][x];
+      const c = world.grid[y][x];
       if (!c) continue;
       const bnk = BANKS[matOf(c).bank];
       ctx.fillStyle = "hsla(" + bnk[0] + "," + bnk[1] + "%,55%," + (matOf(c).prop ? 0.9 : 0.5) + ")";
@@ -835,6 +1200,10 @@ function drawMinimap() {
 const statsEl  = document.getElementById("stats");
 const helpEl   = document.getElementById("help");
 const promptEl = document.getElementById("prompt");
+const talkEl     = document.getElementById("talk");
+const talkNameEl = document.getElementById("talkName");
+const talkLineEl = document.getElementById("talkLine");
+const talkMoreEl = document.getElementById("talkMore");
 const msgEl    = document.getElementById("msg");
 
 function setHelp() {
@@ -867,10 +1236,12 @@ function frame(now) {
 
   nowMs = now;
   castColumns(dirX, dirY, planeX, planeY);
+  computeSprites(dirX, dirY, planeX, planeY);
   updateFocus();
   if (msgUntil && now > msgUntil) { msgEl.style.opacity = "0"; msgUntil = 0; }
   drawWalls();
   drawGrid(dirX, dirY, planeX, planeY);
+  drawNPCs();
   blit();
   drawJoystick();
   if (showMap) drawMinimap();
