@@ -45,7 +45,7 @@ desktop, 80×77 on a phone. Each screen column casts one ray.
 
 ### World
 `MAP_ART` — the map is ASCII art with a legend, parsed to a numeric grid at load.
-Currently 44×22: one city block. Your shop and Mrs Ilić's face each other across
+Currently 44×22: one city block. Your shop and Mr Ilić's face each other across
 a street, an alley between them dead-ends at a dumpster, a cross street runs
 south past the rival's stall, a tall backdrop seals the playable area.
 
@@ -124,7 +124,7 @@ pathfinding.
 From the design doc's Section 6. Design **only** this:
 
 - The block that exists, plus the **shop interior** and **one other interior**
-- **Three NPCs:** Mrs Ilić, one heroine-track character, one rival/gatekeeper
+- **Three NPCs:** Mr Ilić, one heroine-track character, one rival/gatekeeper
 - **One job start to finish** — the lamp — with the day loop wrapped round it
 - **One scavenge point** — the alley dumpster
 - The **diagnostic minigame** at simple tier: tap test points, each returns
@@ -143,7 +143,7 @@ content around a loop nobody has tested.
 
 Prose has to be interpreted; data gets implemented directly. Use these shapes.
 
-**Use consistent ids everywhere.** If Mrs Ilić is `ilic` in the map, she is
+**Use consistent ids everywhere.** If Mr Ilić is `ilic` in the map, he is
 `ilic` in dialogue, in the job table, and in every event.
 
 ### Maps
@@ -168,8 +168,8 @@ Say the height of anything that isn't a full wall — a counter you see over is
 ### NPCs
 ```
 id: ilic
-name: Mrs Ilić
-sprite: elderly woman, cardigan, holds a lamp   (art direction, one line)
+name: Mr Ilić
+sprite: elderly man, cardigan, holds a lamp   (art direction, one line)
 positions:
   morning:   street  @ 22.5, 10.0  facing north
   afternoon: ilic_interior @ 4.5, 6.0  facing south
