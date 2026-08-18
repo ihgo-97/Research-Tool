@@ -2,1549 +2,2140 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Static Block — Raycast Engine</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Apartment — District 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  html, body {
-    margin:0; padding:0; height:100%; background:#03060a; overflow:hidden;
-    overscroll-behavior:none; touch-action:none;
-    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+  :root{
+    --ink:#EDE0CF;
+    --ink-dim:#A2907C;
+    --page:#241F1B;
+    --panel:#2E2823;
+    --line:#443A31;
+    --hot:#E0A24A;
+    --display:"Fraunces","Iowan Old Style",Georgia,serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
   }
-  canvas { display:block; width:100vw; height:100vh; height:100dvh; touch-action:none; }
-  .hud {
-    position:fixed; pointer-events:none; user-select:none;
-    font:11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
-    color:#2d7f8a; letter-spacing:0.5px; text-shadow:0 0 6px rgba(0,180,200,.25);
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{
+    margin:0;padding:0;height:100%;
+    overscroll-behavior:none;overflow:hidden;
+    background:var(--page);color:var(--ink);
+    font-family:var(--mono);-webkit-font-smoothing:antialiased;
   }
-  #stats { top:10px; left:12px; }
-  /* the help line can sit over lit walls now, so it needs the outline too */
-  #help  { bottom:10px; left:12px; right:12px; color:#579aa6;
-           text-shadow:0 0 3px #000, 0 0 8px #000; }
-  /* centred, capped width, and sitting above the joystick */
-  #prompt, #msg { left:0; right:0; margin:0 auto; max-width:min(30em, 86vw);
-                  text-align:center; font-size:13px; }
-  /* both sit over lit walls, so they carry their own dark outline */
-  #prompt { bottom:30%; color:#ffd9a0; text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000; }
-  #talk {
-    position:fixed; left:50%; transform:translateX(-50%); bottom:6%;
-    pointer-events:none; user-select:none;
-    width:min(46em, 92vw); display:none; box-sizing:border-box;
-    padding:14px 18px 12px; border:1px solid rgba(120,220,240,.35);
-    background:rgba(4,10,16,.92); border-radius:3px;
-    font:14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
-    color:#dff2f7; text-shadow:0 0 6px rgba(0,0,0,.9);
+  .shell{
+    height:100dvh;width:100%;
+    display:flex;flex-direction:column;
+    padding:8px 10px;
+    max-width:640px;margin:0 auto;
   }
-  #talkName { color:#ffd06a; letter-spacing:1px; font-size:12px; margin-bottom:6px; }
-  #talkMore { color:#4e8d99; font-size:11px; text-align:right; margin-top:8px; }
-  #msg {
-    bottom:23%; color:#cdf4fb; padding:0 18px;
-    text-shadow:0 0 3px #000, 0 0 8px #000, 0 1px 2px #000;
-    opacity:0; transition:opacity .5s ease;
+
+  header{
+    display:flex;align-items:baseline;justify-content:space-between;
+    gap:8px;margin-bottom:6px;flex:none;
   }
-  #help.touch { bottom:auto; right:12px; }   /* top set in layout(), under the minimap */
+  .title{display:flex;align-items:baseline;gap:8px;min-width:0}
+  h1{
+    font-family:var(--display);font-weight:600;
+    font-size:clamp(17px,4.6vw,22px);letter-spacing:-.01em;margin:0;
+    white-space:nowrap;
+  }
+  .slug{
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-dim);border:1px solid var(--line);
+    padding:2px 6px;border-radius:2px;white-space:nowrap;
+  }
+  .info-btn{
+    appearance:none;flex:none;width:22px;height:22px;border-radius:50%;
+    background:none;border:1px solid var(--line);color:var(--ink-dim);
+    font-family:var(--display);font-size:12px;cursor:pointer;
+  }
+
+  .clock{
+    display:grid;grid-template-columns:repeat(4,1fr);
+    border:1px solid var(--line);border-radius:3px;
+    background:var(--panel);flex:none;margin-bottom:6px;overflow:hidden;
+  }
+  .clock button{
+    appearance:none;background:none;border:none;
+    border-right:1px solid var(--line);
+    color:var(--ink-dim);font-family:var(--mono);
+    font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    padding:6px 2px;cursor:pointer;position:relative;
+  }
+  .clock button:last-child{border-right:none}
+  .clock button::after{
+    content:"";position:absolute;left:0;right:0;top:-1px;height:2px;background:transparent;
+  }
+  .clock button[aria-pressed="true"]{color:var(--ink);background:#39312A}
+  .clock button[aria-pressed="true"]::after{background:var(--hot)}
+  .clock button:focus-visible{outline:2px solid var(--hot);outline-offset:-3px}
+
+  .stage{
+    position:relative;flex:1;min-height:0;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .frame{
+    position:relative;border:1px solid var(--line);border-radius:3px;
+    overflow:hidden;background:#1B1714;line-height:0;
+  }
+  canvas{display:block;touch-action:none}
+
+  .hud{
+    position:absolute;top:7px;left:7px;right:7px;
+    display:flex;align-items:center;gap:8px;
+    background:rgba(20,17,15,0.62);backdrop-filter:blur(3px);
+    border:1px solid rgba(237,224,207,0.10);border-radius:3px;
+    padding:6px 9px;font-size:11px;pointer-events:none;
+    opacity:0;transition:opacity .2s ease;
+  }
+  .hud.show{opacity:1}
+  .hud .key{
+    flex:none;font-size:9px;letter-spacing:.08em;
+    border:1px solid rgba(237,224,207,0.3);border-radius:2px;
+    padding:2px 5px;color:var(--ink-dim);
+  }
+  .hud .text{color:var(--ink-dim)}
+  .hud .text b{color:var(--ink);font-weight:500}
+
+  .joystick{
+    position:absolute;left:14px;bottom:14px;
+    width:104px;height:104px;border-radius:50%;
+    background:rgba(237,224,207,0.09);
+    border:1px solid rgba(237,224,207,0.22);
+    touch-action:none;
+  }
+  .joystick .nub{
+    position:absolute;width:44px;height:44px;border-radius:50%;
+    background:rgba(237,224,207,0.30);
+    border:1px solid rgba(237,224,207,0.48);
+    left:50%;top:50%;transform:translate(-50%,-50%);
+    pointer-events:none;
+  }
+  .actionbtn{
+    position:absolute;right:16px;bottom:20px;
+    width:60px;height:60px;border-radius:50%;
+    background:rgba(224,162,74,0.16);
+    border:1px solid rgba(224,162,74,0.5);
+    color:var(--hot);font-family:var(--mono);
+    font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    touch-action:none;
+  }
+  .actionbtn:active{background:rgba(224,162,74,0.30)}
+
+  .info-panel{
+    position:fixed;inset:0;background:rgba(15,13,11,0.86);
+    display:none;align-items:center;justify-content:center;padding:20px;z-index:5;
+  }
+  .info-panel.open{display:flex}
+  .info-card{
+    max-width:420px;background:var(--panel);border:1px solid var(--line);
+    border-radius:4px;padding:16px 18px;font-size:12px;line-height:1.65;
+    color:var(--ink-dim);
+  }
+  .info-card b{color:var(--ink);font-weight:500}
+  .info-card .close{
+    margin-top:12px;appearance:none;background:none;border:1px solid var(--line);
+    color:var(--ink);font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;padding:6px 12px;border-radius:2px;cursor:pointer;
+  }
+
+  .stats{
+    display:flex;align-items:center;gap:7px;flex:none;
+    font-size:10.5px;letter-spacing:.03em;color:var(--ink-dim);
+    border:1px solid var(--line);border-radius:2px;padding:3px 7px;
+    white-space:nowrap;
+  }
+  .stats .money{color:var(--hot)}
+  .stats .bar{
+    width:34px;height:5px;border-radius:2px;background:var(--line);
+    overflow:hidden;flex:none;
+  }
+  .stats .bar i{display:block;height:100%;background:#7FB08A;transition:width .25s ease}
+
+  /* ---- chooser popover (desk: computer vs workbench) ---- */
+  .chooser{
+    position:absolute;inset:0;background:rgba(15,13,11,0.78);
+    display:none;align-items:center;justify-content:center;z-index:4;
+  }
+  .chooser.open{display:flex}
+  .chooser-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:14px;display:flex;flex-direction:column;gap:8px;width:82%;max-width:280px;
+  }
+  .chooser-card .label{
+    font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-dim);margin-bottom:2px;
+  }
+  .chooser-card button{
+    appearance:none;text-align:left;padding:11px 12px;
+    background:none;border:1px solid var(--line);border-radius:3px;
+    color:var(--ink);font-family:var(--mono);font-size:12.5px;cursor:pointer;
+  }
+  .chooser-card button small{display:block;color:var(--ink-dim);font-size:10px;margin-top:2px}
+  .chooser-card .cancel{
+    border:none;color:var(--ink-dim);font-size:10.5px;text-align:center;
+    text-transform:uppercase;letter-spacing:.08em;padding:8px 0 0;
+  }
+
+  /* ---- full panels (computer / workbench) ---- */
+  .modal-panel{
+    position:fixed;inset:0;background:rgba(15,13,11,0.9);
+    display:none;align-items:flex-end;justify-content:center;z-index:6;
+  }
+  .modal-panel.open{display:flex}
+  .modal-card{
+    width:100%;max-width:520px;max-height:82vh;overflow-y:auto;
+    background:var(--panel);border:1px solid var(--line);border-radius:8px 8px 0 0;
+    padding:16px 16px 20px;
+  }
+  .modal-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    margin-bottom:4px;
+  }
+  .modal-head h2{
+    font-family:var(--display);font-weight:600;font-size:17px;margin:0;
+  }
+  .modal-head button{
+    appearance:none;background:none;border:none;color:var(--ink-dim);
+    font-family:var(--mono);font-size:11px;letter-spacing:.06em;cursor:pointer;padding:6px;
+  }
+  .modal-sub{font-size:10.5px;color:var(--ink-dim);margin:0 0 14px;letter-spacing:.02em}
+
+  .part-row{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 0;border-top:1px solid var(--line);
+  }
+  .part-row:first-of-type{border-top:none}
+  .part-row .pname{font-size:12.5px}
+  .part-row .pmeta{font-size:9.5px;color:var(--ink-dim);letter-spacing:.03em;margin-top:2px}
+  .part-row .pbuy{
+    appearance:none;flex:none;background:none;border:1px solid var(--hot);
+    color:var(--hot);border-radius:3px;padding:6px 11px;font-family:var(--mono);
+    font-size:11px;cursor:pointer;
+  }
+  .part-row .pbuy:disabled{border-color:var(--line);color:var(--ink-dim);cursor:default}
+  .have-tag{font-size:9.5px;color:var(--ink-dim)}
+
+  .recipe-card{border-top:1px solid var(--line);padding-top:12px;margin-top:4px}
+  .recipe-card h3{font-family:var(--display);font-size:14px;margin:0 0 8px}
+  .req-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .req-chip{
+    font-size:10px;padding:4px 8px;border-radius:10px;border:1px solid var(--line);
+    color:var(--ink-dim);
+  }
+  .req-chip.ok{border-color:#7FB08A;color:#B9D8BE}
+  .req-chip.missing{border-color:#A24A4A;color:#D89A9A}
+  .craft-btn{
+    appearance:none;width:100%;padding:11px;background:none;
+    border:1px solid var(--hot);border-radius:3px;color:var(--hot);
+    font-family:var(--mono);font-size:12px;letter-spacing:.06em;
+    text-transform:uppercase;cursor:pointer;position:relative;overflow:hidden;
+  }
+  .craft-btn:disabled{border-color:var(--line);color:var(--ink-dim);cursor:default}
+  .craft-btn .fill{
+    position:absolute;left:0;top:0;bottom:0;width:0%;
+    background:rgba(224,162,74,0.25);transition:width .9s linear;
+  }
+  .craft-btn span{position:relative}
+  .inv-note{font-size:9.5px;color:var(--ink-dim);margin-top:14px;line-height:1.5}
+
+  /* ---- dialogue (NPC conversation) ---- */
+  .dialogue-panel{
+    position:fixed;inset:0;background:rgba(15,13,11,0.86);
+    display:none;align-items:flex-end;justify-content:center;padding:0 10px;z-index:7;
+  }
+  .dialogue-panel.open{display:flex}
+  .dialogue-wrap{width:100%;max-width:520px;display:flex;flex-direction:column;align-items:flex-start}
+  .portrait-box{
+    width:96px;height:96px;border-radius:10px 10px 0 0;
+    background:var(--panel);border:1px solid var(--line);border-bottom:none;
+    overflow:hidden;margin-left:14px;
+    display:flex;align-items:center;justify-content:center;flex:none;
+  }
+  .portrait-box img{width:100%;height:100%;object-fit:cover;display:block}
+  .portrait-fallback{font-family:var(--display);font-weight:600;font-size:32px;color:var(--ink-dim)}
+  .dialogue-card{
+    width:100%;background:var(--panel);border:1px solid var(--line);
+    border-radius:0 8px 8px 8px;padding:14px 16px 16px;
+  }
+  .dialogue-name{
+    font-family:var(--display);font-weight:600;font-size:14px;
+    color:var(--hot);margin:0 0 6px;letter-spacing:.01em;
+  }
+  .dialogue-text{font-size:12.5px;line-height:1.6;color:var(--ink);min-height:44px;margin:0 0 14px}
+  .dialogue-actions{display:flex;justify-content:flex-end;gap:8px}
+  .dialogue-actions button{
+    appearance:none;background:none;border:1px solid var(--line);
+    color:var(--ink-dim);font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+    text-transform:uppercase;padding:8px 14px;border-radius:3px;cursor:pointer;
+  }
+  .dialogue-actions button.primary{border-color:var(--hot);color:var(--hot)}
+
+  /* ------------------- title / creation / story ------------------- */
+  .screen{
+    position:fixed;inset:0;display:none;
+    flex-direction:column;
+    padding:28px 24px;background:var(--page);
+  }
+  .screen.active{display:flex}
+  .shell.screen.active{display:flex} /* keep the game screen's own flex rules */
+  .menu-screen{align-items:center;justify-content:center;text-align:center}
+
+  .wordmark{
+    font-family:var(--display);font-weight:600;
+    font-size:clamp(38px,11vw,56px);letter-spacing:-.02em;
+    margin:0 0 6px;color:var(--ink);
+  }
+  .tagline{
+    font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-dim);margin:0 0 46px;
+  }
+  .menu-stack{display:flex;flex-direction:column;gap:10px;width:100%;max-width:270px}
+  .menu-btn{
+    appearance:none;width:100%;padding:13px 16px;
+    background:none;border:1px solid var(--line);border-radius:3px;
+    color:var(--ink);font-family:var(--mono);font-size:13px;letter-spacing:.04em;
+    cursor:pointer;text-align:left;position:relative;
+  }
+  .menu-btn small{display:block;margin-top:2px;font-size:10px;color:var(--ink-dim);letter-spacing:.02em}
+  .menu-btn.primary{border-color:var(--hot);color:var(--hot)}
+  .menu-btn:disabled{opacity:.4;cursor:default}
+  .menu-btn:not(:disabled):active{background:var(--panel)}
+  .build-tag{
+    position:absolute;bottom:16px;font-size:9.5px;letter-spacing:.12em;
+    color:var(--ink-dim);opacity:.6;text-transform:uppercase;
+  }
+
+  .prompt-label{
+    font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-dim);margin-bottom:14px;
+  }
+  .prompt-q{
+    font-family:var(--display);font-weight:600;
+    font-size:clamp(19px,5.2vw,25px);margin:0 0 30px;max-width:320px;
+  }
+  .field-row{display:flex;gap:10px;margin-bottom:30px}
+  input.text-field{
+    width:230px;max-width:70vw;background:none;border:none;
+    border-bottom:1px solid var(--line);color:var(--ink);
+    font-family:var(--display);font-size:20px;text-align:center;
+    padding:6px 4px;outline:none;
+  }
+  input.text-field:focus{border-color:var(--hot)}
+  select.field{
+    background:var(--panel);border:1px solid var(--line);border-radius:3px;
+    color:var(--ink);font-family:var(--mono);font-size:13px;
+    padding:10px 8px;outline:none;
+  }
+  .back-link{
+    position:absolute;top:16px;left:16px;background:none;border:none;
+    color:var(--ink-dim);font-family:var(--mono);font-size:11px;
+    letter-spacing:.06em;cursor:pointer;padding:6px;
+  }
+  .skip-link{
+    position:absolute;top:16px;right:16px;background:none;border:none;
+    color:var(--ink-dim);font-family:var(--mono);font-size:11px;
+    letter-spacing:.06em;cursor:pointer;padding:6px;
+  }
+
+  .story-body{
+    max-width:380px;min-height:120px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .story-body p{
+    font-family:var(--display);font-size:clamp(16px,4.6vw,20px);
+    line-height:1.55;margin:0;opacity:0;transition:opacity .5s ease;
+  }
+  .story-body p.show{opacity:1}
+  .story-dots{display:flex;gap:6px;margin-top:36px}
+  .story-dots span{
+    width:5px;height:5px;border-radius:50%;background:var(--line);
+    transition:background .2s ease;
+  }
+  .story-dots span.on{background:var(--hot)}
+  .story-next{
+    margin-top:22px;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-dim);
+  }
+  .story-next.blink{animation:blink 1.6s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:.35}50%{opacity:.85}}
+  .begin-btn{
+    margin-top:22px;appearance:none;padding:12px 30px;
+    background:none;border:1px solid var(--hot);border-radius:3px;
+    color:var(--hot);font-family:var(--mono);font-size:12px;
+    letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+  }
+  .begin-btn:active{background:rgba(224,162,74,0.14)}
+
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
 </style>
 </head>
 <body>
-<canvas id="screen"></canvas>
-<div class="hud" id="stats"></div>
-<div class="hud" id="help"></div>
-<div class="hud" id="prompt"></div>
-<div class="hud" id="msg"></div>
-<div id="talk">
-  <div id="talkName"></div>
-  <div id="talkLine"></div>
-  <div id="talkMore"></div>
+
+<!-- ============================ TITLE ============================ -->
+<div class="screen menu-screen active" id="screen-title">
+  <h1 class="wordmark">Rewired</h1>
+  <p class="tagline">a repair shop, inherited</p>
+  <div class="menu-stack">
+    <button class="menu-btn primary" id="btnNewGame">New Game</button>
+    <button class="menu-btn" id="btnContinue" disabled>
+      Continue
+      <small id="continueSub">No save yet</small>
+    </button>
+  </div>
+  <span class="build-tag">District 2 · vertical slice</span>
+</div>
+
+<!-- ============================ NAME ============================ -->
+<div class="screen menu-screen" id="screen-name">
+  <button class="back-link" id="nameBack">‹ Back</button>
+  <p class="prompt-label">Chapter One</p>
+  <p class="prompt-q">What should we call you?</p>
+  <div class="field-row">
+    <input class="text-field" id="nameInput" maxlength="16" placeholder="Your name" autocomplete="off">
+  </div>
+  <div class="menu-stack">
+    <button class="menu-btn primary" id="nameNext" disabled>Next</button>
+  </div>
+</div>
+
+<!-- ========================== BIRTHDAY =========================== -->
+<div class="screen menu-screen" id="screen-birthday">
+  <button class="back-link" id="bdayBack">‹ Back</button>
+  <p class="prompt-label">Chapter One</p>
+  <p class="prompt-q">When's your birthday?</p>
+  <div class="field-row">
+    <select class="field" id="bdayMonth"></select>
+    <select class="field" id="bdayDay"></select>
+  </div>
+  <div class="menu-stack">
+    <button class="menu-btn primary" id="bdayNext">Begin</button>
+  </div>
+</div>
+
+<!-- ============================ STORY ============================ -->
+<div class="screen menu-screen" id="screen-story">
+  <button class="skip-link" id="storySkip">Skip ›</button>
+  <div class="story-body"><p id="storyText"></p></div>
+  <div class="story-dots" id="storyDots"></div>
+  <div class="story-next" id="storyNext">tap to continue</div>
+</div>
+
+<!-- ============================= GAME ============================= -->
+<div class="shell screen" id="screen-game">
+
+  <header>
+    <div class="title">
+      <h1 id="mapTitle">Apartment</h1>
+      <span class="slug">District 2</span>
+    </div>
+    <span class="stats" id="stats">
+      <span class="money">₴0</span>
+      <span class="bar"><i id="staminaBar" style="width:100%"></i></span>
+    </span>
+    <button class="info-btn" id="infoBtn" aria-label="What's changed from the floorplan">i</button>
+  </header>
+
+  <div class="clock" role="group" aria-label="Time block">
+    <button data-block="morning" aria-pressed="true">Morning</button>
+    <button data-block="midday" aria-pressed="false">Midday</button>
+    <button data-block="afternoon" aria-pressed="false">Afternoon</button>
+    <button data-block="evening" aria-pressed="false">Evening</button>
+  </div>
+
+  <div class="stage">
+    <div class="frame" id="frame">
+      <canvas id="c" width="768" height="768"></canvas>
+
+      <div class="hud" id="hud">
+        <span class="key" id="keyhint">E</span>
+        <span class="text" id="prompt"></span>
+      </div>
+
+      <div class="chooser" id="deskChooser">
+        <div class="chooser-card">
+          <div class="label">Hobby corner</div>
+          <button id="openComputer">Computer<small>Order parts online</small></button>
+          <button id="openBench">Workbench<small>Tinker with what you've got</small></button>
+          <button class="cancel" id="closeChooser">Never mind</button>
+        </div>
+      </div>
+
+      <div class="joystick" id="joystick"><div class="nub" id="nub"></div></div>
+      <button class="actionbtn" id="actionBtn">Use</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="info-panel" id="infoPanel">
+  <div class="info-card">
+    <div id="infoNoteText">
+      Two liberties beyond the floorplan: a <b>window</b> on the north wall (nothing was lighting the
+      room otherwise), and a <b>wall between the main room and the bathroom</b>, since the plan calls the
+      bathroom "its own enclosed room" but left that edge open.
+    </div>
+    <div><button class="close" id="infoClose">Got it</button></div>
+  </div>
+</div>
+
+<!-- ===================== COMPUTER (order parts) ===================== -->
+<div class="modal-panel" id="computerPanel">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Computer</h2>
+      <button id="closeComputer">Close</button>
+    </div>
+    <p class="modal-sub">No time cost. Guaranteed part, straight to your kit — the tradeoff is money.</p>
+    <div id="partsList"></div>
+    <p class="inv-note">Contacts unlock once there's someone to call — this tab's a placeholder until an NPC or two exist.</p>
+  </div>
+</div>
+
+<!-- ===================== WORKBENCH (tinker) ===================== -->
+<div class="modal-panel" id="benchPanel">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Workbench</h2>
+      <button id="closeBench">Close</button>
+    </div>
+    <p class="modal-sub">What you can build depends on what's actually in your kit right now.</p>
+    <div id="recipeList"></div>
+    <p class="inv-note" id="kitNote"></p>
+  </div>
+</div>
+
+<!-- ===================== DIALOGUE (NPC conversation) ===================== -->
+<div class="dialogue-panel" id="dialoguePanel">
+  <div class="dialogue-wrap">
+    <div class="portrait-box" id="portraitBox">
+      <img id="portraitImg" alt="" style="display:none">
+      <span class="portrait-fallback" id="portraitFallback"></span>
+    </div>
+    <div class="dialogue-card">
+      <p class="dialogue-name" id="dialogueName"></p>
+      <p class="dialogue-text" id="dialogueText"></p>
+      <div class="dialogue-actions">
+        <button id="dialogueClose">Leave</button>
+        <button class="primary" id="dialogueNext">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SHOP WORKBENCH (real bench) ===================== -->
+<div class="modal-panel" id="shopBenchPanel">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Workbench</h2>
+      <button id="closeShopBench">Close</button>
+    </div>
+    <p class="modal-sub">The real bench — heavier jobs than the hobby corner at home.</p>
+    <div id="shopRecipeList"></div>
+    <p class="inv-note" id="shopKitNote"></p>
+  </div>
+</div>
+
+<!-- ===================== GOODS SHOP (flowers, food, ...) ===================== -->
+<div class="modal-panel" id="goodsPanel">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="goodsTitle">Shop</h2>
+      <button id="closeGoods">Close</button>
+    </div>
+    <p class="modal-sub" id="goodsSubtitle"></p>
+    <div id="goodsList"></div>
+  </div>
 </div>
 
 <script>
-"use strict";
+/* =================================================================
+   INTRO FLOW — title, new game / continue, name + birthday, backstory
+================================================================= */
+const profile = {name:"", month:0, day:1};
+const MONTHS = ["January","February","March","April","May","June","July",
+                 "August","September","October","November","December"];
+const DAYS_IN = [31,28,31,30,31,30,31,31,30,31,30,31];
 
-/* ------------------------------------------------------------------ *
- *  STATIC BLOCK — step 1: DDA raycaster, character-cell renderer.
- *  One ray per character column. Walls drawn as vertical stripes whose
- *  glyph density + brightness fall off with distance.
- * ------------------------------------------------------------------ */
+const screens = {};
+document.querySelectorAll(".screen").forEach(s => screens[s.id] = s);
+function showScreen(id){
+  Object.values(screens).forEach(s => s.classList.remove("active"));
+  screens[id].classList.add("active");
+}
 
-/* ---------- 1. WORLD ---------------------------------------------- *
- *  Maps are ASCII art with one shared legend. Each row of a map must
- *  stay the same length. Doors that lead somewhere are portals: solid,
- *  tap to travel. Doorways inside one map are just gaps (legend 0).
- * ------------------------------------------------------------------ */
+const SAVE_KEY = "rewired_save";
+const hasHostStorage = typeof window.storage !== "undefined" && window.storage;
+
+async function readSave(){
+  try{
+    if(hasHostStorage){
+      const res = await window.storage.get(SAVE_KEY, false);
+      return res ? JSON.parse(res.value) : null;
+    }
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+async function writeSave(data){
+  try{
+    const json = JSON.stringify(data);
+    if(hasHostStorage) await window.storage.set(SAVE_KEY, json, false);
+    else localStorage.setItem(SAVE_KEY, json);
+  }catch(e){ console.error("save failed", e); }
+}
+
+// ---- title screen ----
+const btnNewGame = document.getElementById("btnNewGame");
+const btnContinue = document.getElementById("btnContinue");
+const continueSub = document.getElementById("continueSub");
+
+(async function initTitle(){
+  const save = await readSave();
+  if(save){
+    btnContinue.disabled = false;
+    continueSub.textContent = `${save.name} · ${MONTHS[save.month].slice(0,3)} ${save.day}`;
+  }
+})();
+
+btnNewGame.addEventListener("click", ()=> showScreen("screen-name"));
+btnContinue.addEventListener("click", async ()=>{
+  const save = await readSave();
+  if(!save) return;
+  Object.assign(profile, save);
+  enterGame(false);
+});
+
+// ---- name screen ----
+const nameInput = document.getElementById("nameInput");
+const nameNext = document.getElementById("nameNext");
+nameInput.addEventListener("input", ()=>{
+  nameNext.disabled = nameInput.value.trim().length === 0;
+});
+nameInput.addEventListener("keydown", e=>{
+  if(e.key === "Enter" && !nameNext.disabled) nameNext.click();
+});
+document.getElementById("nameBack").addEventListener("click", ()=> showScreen("screen-title"));
+nameNext.addEventListener("click", ()=>{
+  profile.name = nameInput.value.trim().slice(0,16);
+  showScreen("screen-birthday");
+});
+
+// ---- birthday screen ----
+const monthSel = document.getElementById("bdayMonth");
+const daySel = document.getElementById("bdayDay");
+MONTHS.forEach((m,i) => monthSel.add(new Option(m, i)));
+function rebuildDays(){
+  const prevDay = Number(daySel.value) || 1;
+  daySel.innerHTML = "";
+  const n = DAYS_IN[Number(monthSel.value)];
+  for(let d=1; d<=n; d++) daySel.add(new Option(d, d));
+  daySel.value = Math.min(prevDay, n);
+}
+monthSel.addEventListener("change", rebuildDays);
+rebuildDays();
+
+document.getElementById("bdayBack").addEventListener("click", ()=> showScreen("screen-name"));
+document.getElementById("bdayNext").addEventListener("click", ()=>{
+  profile.month = Number(monthSel.value);
+  profile.day = Number(daySel.value);
+  writeSave({name:profile.name, month:profile.month, day:profile.day});
+  startStory();
+});
+
+// ---- story screen ----
+function storyPages(){
+  const n = profile.name || "the new owner";
+  return [
+    `Six months ago, ${n}'s father closed the shop for the last time.`,
+    "He didn't say much before he passed. He never did. Just the keys, and an address.",
+    "The shop's been quiet since — dust on the counter, the sign still turned to CLOSED.",
+    `${n} moved into the apartment two streets over. Alone, for now. Boxes still half-unpacked.`,
+    "Tomorrow, the sign turns back to OPEN.",
+  ];
+}
+let storyIdx = 0, storyPagesCache = [];
+const storyText = document.getElementById("storyText");
+const storyDots = document.getElementById("storyDots");
+const storyNext = document.getElementById("storyNext");
+
+function startStory(){
+  storyPagesCache = storyPages();
+  storyIdx = 0;
+  storyDots.innerHTML = storyPagesCache.map(()=>"<span></span>").join("");
+  showScreen("screen-story");
+  renderStoryPage();
+}
+function renderStoryPage(){
+  storyText.classList.remove("show");
+  storyNext.classList.remove("blink");
+  storyNext.textContent = storyIdx === storyPagesCache.length-1 ? "tap to begin" : "tap to continue";
+  setTimeout(()=>{
+    storyText.textContent = storyPagesCache[storyIdx];
+    storyText.classList.add("show");
+    storyNext.classList.add("blink");
+  }, 120);
+  [...storyDots.children].forEach((d,i)=> d.classList.toggle("on", i===storyIdx));
+}
+function advanceStory(){
+  if(storyIdx < storyPagesCache.length-1){ storyIdx++; renderStoryPage(); }
+  else enterGame(true);
+}
+document.getElementById("screen-story").addEventListener("click", e=>{
+  if(e.target.id !== "storySkip") advanceStory();
+});
+document.getElementById("storySkip").addEventListener("click", e=>{
+  e.stopPropagation();
+  enterGame(true);
+});
+
+// ---- hand off to the room ----
+function enterGame(fresh){
+  showScreen("screen-game");
+  loadMap("apartment_interior", MAPS.apartment_interior.spawnDefault);
+  if(profile.name){
+    promptEl.innerHTML = fresh
+      ? `<b>Welcome home, ${profile.name}.</b>`
+      : `<b>Welcome back, ${profile.name}.</b>`;
+  }
+}
+
+/* ---------------------------------------------------------------
+   MAPS — each entry is a self-contained location: grid, objects,
+   doors. Tile glyphs, by convention:
+     interior: # wall . floor t bathroom tile D locked door d walkway door
+     exterior: # bg building . sidewalk = road , grass a/f/r named
+               building D locked door X district edge
+   Doors carry `to:{map,x,y,face}` for a real transition, or
+   `to:null` + `lockedMsg` for a destination that isn't built yet.
+----------------------------------------------------------------*/
 const MAPS = {
-
-  /* District 1 street — the block outside your shop. */
-  district1_street: {
-    name: "District 1 — street",
-    art: [
-      "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-      "B#####SSSSSSSSS.D.IIIIIIIIII##....#########B",
-      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-      "B#####SSSSSSSSS...IIIIIIIIII##....#########B",
-      "B#####SSSSssSSS...IIIIiiIIII##....#########B",
-      "B..........................................B",
-      "B..........................................B",
-      "B..........................................B",
-      "B.....................VVVV.................B",
-      "B.....................VVVV.................B",
-      "B#############################....#########B",
-      "B#############################....#########B",
-      "B#############################....#########B",
-      "B#############################....#########B",
-      "B#############################....#########B",
-      "B#############################....#########B",
-      "B#############################....#########B",
-      "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-    ]
+  apartment_interior: {
+    kind: "interior",
+    title: "Apartment",
+    w: 12, h: 12,
+    grid: [
+      "############",
+      "#..........#",
+      "#..........#",
+      "#..........D",
+      "#..........#",
+      "#..........#",
+      "#..........#",
+      "##d#########",
+      "#....#      ",
+      "#....#      ",
+      "#....#      ",
+      "######      ",
+    ],
+    window: {x:5, y:0, w:2},
+    objects: [
+      {id:"bed",    x:2, y:1, w:2, h:2, name:"Bed",              prompt:"Sleep — ends the day"},
+      {id:"couch",  x:8, y:2, w:2, h:1, name:"Couch",            prompt:"Sit"},
+      {id:"tv",     x:8, y:3, w:1, h:1, name:"TV",               prompt:"Watch TV"},
+      {id:"desk",   x:9, y:5, w:2, h:1, name:"Hobby corner",     prompt:"Computer, or the workbench"},
+      {id:"sink",   x:2, y:8, w:1, h:1, name:"Sink",             prompt:"Wash up"},
+      {id:"toilet", x:1, y:9, w:1, h:1, name:"Toilet",           prompt:"…"},
+    ],
+    doors: [
+      {id:"entry", x:11, y:3, name:"Front door", prompt:"Leave for the street", side:"east",
+       to:{map:"district2_street", x:8.5, y:9.5, face:"south"}},
+      {id:"bath",  x:2,  y:7, name:"Bathroom door", prompt:"", side:"north"},
+    ],
+    spawnDefault: {x:10.5, y:3.5, face:"west"},
+    infoNote: `Two liberties beyond the floorplan: a <b>window</b> on the north wall (nothing was
+      lighting the room otherwise), and a <b>wall between the main room and the bathroom</b>,
+      since the plan calls the bathroom "its own enclosed room" but left that edge open.`,
   },
 
-  /* THE FIX, inside. Public strip at the top, counter across the width
-     with a flap at the near end, work zone behind it, storage through
-     the gap bottom right, backroom door locked. Transcribed from the
-     District 1 shop floor plan. */
+  district2_street: {
+    kind: "exterior",
+    title: "District 2 Street",
+    w: 18, h: 14,
+    grid: [
+      "#==#rrrrr.=X=#####",
+      "#==#rrrrr.===#####",
+      "#==#rrrrr.===#####",
+      "#==#rrDrr.===#####",
+      "#==.......===.....",
+      "==================",
+      "==================",
+      ".==.......===.....",
+      "#==#aaaa..===fff##",
+      "#==#aaaD..===Dff##",
+      "#==#aaaa..===fff##",
+      ".==.......===.....",
+      "==================",
+      "==================",
+    ],
+    objects: [
+      {id:"lamp",     x:9,  y:8,  w:1, h:1, name:"Streetlamp", prompt:"Look"},
+      {id:"lamp",     x:9,  y:10, w:1, h:1, name:"Streetlamp", prompt:"Look"},
+      {id:"dumpster", x:17, y:7,  w:1, h:1, name:"Dumpster",   prompt:"Search for parts"},
+    ],
+    doors: [
+      {id:"apt_door", x:7, y:9, name:"Apartment", prompt:"Go inside", side:"east",
+       to:{map:"apartment_interior", x:10.5, y:3.5, face:"west"}},
+      {id:"flower_door", x:13, y:9, name:"Flower shop", prompt:"Go inside", side:"east",
+       to:{map:"flower_shop", x:5.5, y:7.5, face:"north"}},
+      {id:"restaurant_door", x:6, y:3, name:"Restaurant", prompt:"Go inside", side:"south",
+       to:null, lockedMsg:"<b>Restaurant</b> — not built yet."},
+      {id:"dist1_edge", x:11, y:0, name:"District 1", prompt:"Head north", side:"north",
+       to:{map:"district1_street", x:11.5, y:12.5, face:"north"}},
+    ],
+    spawnDefault: {x:8.5, y:9.5, face:"south"},
+    infoNote: `Simplified from the reference floorplan — road widths, building footprints, and
+      the lamp/dumpster placement are schematic, not pixel-matched. The <b>flower shop</b> is a
+      real door now; the <b>restaurant</b> is still a stub. The <b>District 1 edge</b> leads
+      somewhere too.`,
+  },
+
+  /* -------------------------------------------------------------
+     DISTRICT 1 — city center / downtown, work-focused. Redrawn in
+     the same grid-street language as District 2, per the "STILL TO
+     DO" note: Main St + Side St crossing two cross streets. Mr
+     Ilić's place and Bruno's shop are real doors but not built yet
+     — same "honest lockedMsg" pattern District 2 used before this
+     session.
+  ----------------------------------------------------------------*/
+  district1_street: {
+    kind: "exterior",
+    title: "District 1 Street",
+    w: 18, h: 14,
+    grid: [
+      "#==#iiiii.===#####",
+      "#==#iiiii.===#####",
+      "#==#iiiii.===#####",
+      "#==#iiDii.===#####",
+      "#==.......===.....",
+      "==================",
+      "==================",
+      ".==.......===.....",
+      "#==#ssss..===bbb##",
+      "#==#sssD..===Dbb##",
+      "#==#ssss..===bbb##",
+      ".==.......===.....",
+      "==================",
+      "===========X======",
+    ],
+    objects: [
+      {id:"lamp",     x:9,  y:8,  w:1, h:1, name:"Streetlamp", prompt:"Look"},
+      {id:"lamp",     x:9,  y:10, w:1, h:1, name:"Streetlamp", prompt:"Look"},
+      {id:"dumpster", x:2,  y:4,  w:1, h:1, name:"Alley dumpster", prompt:"Search for parts"},
+    ],
+    doors: [
+      {id:"shop_door", x:7, y:9, name:"Your shop", prompt:"Go inside", side:"east",
+       to:{map:"shop_interior", x:9.5, y:2.5, face:"west"}},
+      {id:"ilic_door", x:6, y:3, name:"Mr Ilić's place", prompt:"Knock", side:"south",
+       to:null, lockedMsg:"<b>Mr Ilić's place</b> — not built yet."},
+      {id:"bruno_door", x:13, y:9, name:"Bruno's appliance shop", prompt:"Go inside", side:"east",
+       to:null, lockedMsg:"<b>Bruno's shop</b> — not built yet."},
+      {id:"dist2_edge", x:11, y:13, name:"District 2", prompt:"Head south", side:"south",
+       to:{map:"district2_street", x:11.5, y:2.5, face:"south"}},
+    ],
+    spawnDefault: {x:8.5, y:9.5, face:"south"},
+    infoNote: `Same schematic grid-street language as District 2 — Main St / Side St crossing
+      two cross streets, alley dumpster tucked by <b>Mr Ilić's</b> block. <b>Your shop</b> is a
+      real door now; <b>Ilić's place</b> and <b>Bruno's shop</b> are still stubs.`,
+  },
+
+  /* -------------------------------------------------------------
+     SHOP INTERIOR — public zone blocked by a counter with a staff
+     flap gap; work zone behind it; a small storage nook off the
+     work zone (same sub-room trick as the apartment bathroom); and
+     a locked backroom door — the lab discovery trigger is still an
+     open design question, so it stays locked for now rather than
+     guessing at when it should open.
+  ----------------------------------------------------------------*/
   shop_interior: {
-    name: "THE FIX — shop floor",
-    art: [
-      "################",
-      "#..............#",
-      "#.r..........r.#",
-      "X..............#",
-      "#..............#",
-      "#f=============#",
-      "#..............#",
-      "#...W..........#",
-      "#..........p...#",
-      "#..............#",
-      "######L#+#######",
-      "########.......#",
-      "########..h....#",
-      "########.......#",
-      "################"
-    ]
-  }
+    kind: "interior",
+    title: "The Shop",
+    w: 12, h: 12,
+    grid: [
+      "############",
+      "#..........#",
+      "#..........D",
+      "#..........#",
+      "#..........#",
+      "#..........#",
+      "#..........#",
+      "#..........#",
+      "#..........#",
+      "##d######D##",
+      "#....#      ",
+      "######      ",
+    ],
+    window: {x:5, y:0, w:2},
+    objects: [
+      {id:"rack",   type:"rack",   x:2, y:2,  w:1, h:1, name:"Utility rack",  prompt:"Batteries, bulbs, cheap tools — display stock"},
+      {id:"rack",   type:"rack",   x:8, y:2,  w:1, h:1, name:"Utility rack",  prompt:"Batteries, bulbs, cheap tools — display stock"},
+      {id:"counter",type:"counter",x:1, y:4,  w:4, h:1, name:"Counter",      prompt:""},
+      {id:"counter",type:"counter",x:6, y:4,  w:5, h:1, name:"Counter",      prompt:""},
+      {id:"shop_bench", type:"shop_bench", x:4, y:6, w:2, h:1, name:"Workbench", prompt:"Diagnostic + job queue"},
+      {id:"phone",  type:"phone",  x:8, y:6,  w:1, h:1, name:"Phone",         prompt:"Order parts"},
+      {id:"shelf",  type:"shelf",  x:2, y:10, w:1, h:1, name:"Shelf",         prompt:"Parts storage"},
+      {id:"npc",    type:"npc",    npcId:"first_customer", x:3, y:2, w:1, h:1, name:"A customer", prompt:"Talk"},
+    ],
+    doors: [
+      {id:"front", x:11, y:2, name:"Front door", prompt:"Leave for the street", side:"east",
+       to:{map:"district1_street", x:8.5, y:9.5, face:"south"}},
+      {id:"storage", x:2, y:9, name:"Storage nook", prompt:"", side:"north"},
+      {id:"backroom", x:10, y:9, name:"Backroom", prompt:"Try the door", side:"north",
+       to:null, lockedMsg:"<b>Locked.</b> Whatever's back there, it'll have to wait."},
+    ],
+    spawnDefault: {x:9.5, y:2.5, face:"west"},
+    infoNote: `The counter has a one-tile gap standing in for the floorplan's staff flap.
+      The <b>storage nook</b> reuses the apartment's sub-room trick. The <b>backroom door</b> is
+      real — it leads to the lab — but it's locked: the world bible leaves the discovery trigger
+      as an open question, so rather than guess, it stays gated until that's decided. The
+      customer waiting by the counter is a placeholder to prove out dialogue + portraits, not a
+      named cast member yet.`,
+  },
+
+  /* -------------------------------------------------------------
+     SHOP BACKROOM / LAB — deliberately cluttered, no zoning. Fully
+     built and wired to the shop's backroom door, but that door is
+     locked for now (see shop_interior note) — flipping its `to`
+     from null to this map's entry point is all it takes once the
+     trigger is decided.
+  ----------------------------------------------------------------*/
+  shop_backroom: {
+    kind: "interior",
+    title: "Backroom",
+    w: 10, h: 9,
+    grid: [
+      "####D#####",
+      "#........#",
+      "#........#",
+      "#........#",
+      "#........#",
+      "#........#",
+      "#........#",
+      "#........#",
+      "##########",
+    ],
+    window: {x:1, y:0, w:1},
+    objects: [
+      {id:"junk", type:"junk", pileId:"junk_a", x:2, y:2, w:1, h:1, name:"Junk pile", prompt:"Dig through it"},
+      {id:"junk", type:"junk", pileId:"junk_b", x:7, y:2, w:1, h:1, name:"Junk pile", prompt:"Dig through it"},
+      {id:"junk", type:"junk", pileId:"junk_c", x:7, y:5, w:1, h:1, name:"Junk pile", prompt:"Dig through it"},
+      {id:"coveredbench", type:"coveredbench", x:4, y:4, w:2, h:1, name:"Covered workbench", prompt:"Still tarped over"},
+      {id:"trunk", type:"trunk", x:1, y:6, w:1, h:1, name:"Old trunk", prompt:"Try the latch"},
+    ],
+    doors: [
+      {id:"back", x:4, y:0, name:"Back to the shop", prompt:"Leave", side:"north",
+       to:{map:"shop_interior", x:10.5, y:8.5, face:"north"}},
+    ],
+    spawnDefault: {x:4.5, y:1.5, face:"south"},
+    infoNote: `No zoning at all, deliberately — junk piles, a tarped-over bench (becomes the real
+      lab bench once cleared), and an old locked trunk as a story hook. Untouched in years, per
+      the floorplan's own caption.`,
+  },
+
+  /* -------------------------------------------------------------
+     FLOWER SHOP — District 2. Fully open floor, no barrier (unlike
+     the repair shop's counter): the checkout counter sits flush
+     against the west wall and never blocks a path. A small enclosed
+     cooler room is grafted onto the east side, same sub-room trick
+     as the apartment bathroom / shop storage nook. Flora and Lyra
+     are both here; the checkout counter is the buy point.
+  ----------------------------------------------------------------*/
+  flower_shop: {
+    kind: "interior",
+    title: "Flora's Flowers",
+    w: 16, h: 9,
+    grid: [
+      "############    ",
+      "#..........#    ",
+      "#..........#####",
+      "#..........d...#",
+      "#..........#...#",
+      "#..........#####",
+      "#..........#    ",
+      "#..........#    ",
+      "#####D######    ",
+    ],
+    window: {x:3, y:0, w:2},
+    objects: [
+      {id:"checkout", type:"checkout", shopId:"flower_shop", x:1, y:2, w:1, h:3,
+       name:"Checkout counter", prompt:"Buy flowers"},
+      {id:"flower_display", x:3, y:1, w:1, h:1, name:"Flower display", prompt:"Browse the blooms"},
+      {id:"flower_display", x:5, y:1, w:1, h:1, name:"Flower display", prompt:"Browse the blooms"},
+      {id:"flower_display", x:8, y:1, w:1, h:1, name:"Flower display", prompt:"Browse the blooms"},
+      {id:"flower_display", x:3, y:6, w:1, h:1, name:"Flower display", prompt:"Browse the blooms"},
+      {id:"flower_display", x:8, y:6, w:1, h:1, name:"Flower display", prompt:"Browse the blooms"},
+      {id:"arrangement_table", x:5, y:7, w:2, h:1, name:"Arrangement table",
+       prompt:"Flora's workspace — fresh cuts, nothing to buy here directly"},
+      {id:"cooler_unit", x:13, y:3, w:1, h:1, name:"Cooler", prompt:"Fresh stock, kept chilled"},
+      {id:"npc", type:"npc", npcId:"mrs_flora", x:2, y:3, w:1, h:1, name:"Mrs Flora", prompt:"Talk"},
+      {id:"npc", type:"npc", npcId:"lyra",      x:8, y:2, w:1, h:1, name:"Lyra",      prompt:"Talk"},
+    ],
+    doors: [
+      {id:"exit", x:5, y:8, name:"Front door", prompt:"Leave for the street", side:"south",
+       to:{map:"district2_street", x:12.5, y:9.5, face:"south"}},
+      {id:"cooler_door", x:11, y:3, name:"Cooler door", prompt:"", side:"east"},
+    ],
+    spawnDefault: {x:5.5, y:7.5, face:"north"},
+    infoNote: `Open-plan, exactly as the floorplan calls for — the checkout counter is decorative
+      against the west wall and never splits the room the way the repair shop's counter does. The
+      <b>cooler</b> room reuses the apartment's sub-room trick. Five flower displays and the
+      arrangement table are schematic placements, not pixel-matched to the reference image. The
+      <b>checkout counter</b> is where buying happens; talking to <b>Flora</b> or <b>Lyra</b> is
+      just conversation for now.`,
+  },
 };
 
-/* Materials. h is height in map units with the eye at 0.5, so anything
-   under ~0.9 can be seen over. ramp is the surface's glyph ramp, sparse
-   to dense; bank picks its colour block in PALETTE. prop makes it
-   interactive; portal makes it a door you tap to travel through. */
-const MAT = {
-  1:  { name: "WALL",       h: 2.6,  bank: 0, ramp: "··..::░░▒▒▓█" },
-  2:  { name: "THE FIX",    h: 1.9,  bank: 1, ramp: "··--==##%%@█" },
-  3:  { name: "ILIC BLDG",  h: 2.2,  bank: 2, ramp: "··''::!!||║█" },
-  4:  { name: "STALL",      h: 0.85, bank: 3, ramp: "··,,xxXX##▒█" },
-  5:  { name: "SKYLINE",    h: 5.0,  bank: 4, ramp: "····..::::░▒" },
-  6:  { name: "DUMPSTER",   h: 0.62, bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "Rain and flattened cardboard.", action: "search" } },
-  7:  { name: "SHOP DOOR",  h: 1.9,  bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "THE FIX — your shop." },
-        portal: { map: "shop_interior", x: 2.6, y: 3.5, a: 0 } },
-  8:  { name: "ILIC DOOR",  h: 2.2,  bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "Mr Ilic's door. A lamp with a frayed cord sits just inside." } },
+let MAP, W, H, WINDOW, OBJECTS, DOORS, MAP_KIND, currentMapId;
 
-  /* shop interior */
-  9:  { name: "WALL",       h: 2.4,  bank: 0, ramp: "··..::░░▒▒▓█" },
-  10: { name: "COUNTER",    h: 0.9,  bank: 1, ramp: "··--==##%%@█" },
-  11: { name: "RACK",       h: 1.6,  bank: 1, ramp: "··--==##%%@█" },
-  12: { name: "WORKBENCH",  h: 0.8,  bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "", action: "workbench" } },
-  13: { name: "PHONE",      h: 1.1,  bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "The shop phone. Parts ordering comes later." } },
-  14: { name: "BACKROOM",   h: 2.4,  bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "Locked. Your father's old room, by the look of the dust." } },
-  15: { name: "SHELF",      h: 1.8,  bank: 1, ramp: "··--==##%%@█" },
-  16: { name: "FRONT DOOR", h: 2.4,  bank: 5, ramp: "··..::░░▒▒▓█",
-        prop: { text: "Out to the street." },
-        portal: { map: "district1_street", x: 10.5, y: 9.6, a: Math.PI / 2 } }
-};
-
-/* One legend for every map. 'f' and '+' are doorways — gaps you walk
-   through, not objects, so they parse to plain floor. */
-const LEGEND = {
-  ".": 0, "#": 1, "S": 2, "I": 3, "V": 4, "B": 5, "D": 6, "s": 7, "i": 8,
-  "w": 9, "=": 10, "r": 11, "W": 12, "p": 13, "L": 14, "h": 15, "X": 16,
-  "f": 0, "+": 0
-};
-const REACH = 2.6;          // how close you must be to interact, in map cells
-
-/* Interior maps use '#' for their own walls, which the legend maps to
-   the exterior wall material — remap those to the shorter indoor one. */
-function parseMap(def, indoor) {
-  const grid = def.art.map(function (row, y) {
-    return row.split("").map(function (ch, x) {
-      if (!(ch in LEGEND)) throw new Error("unknown map glyph '" + ch + "' at " + x + "," + y);
-      const v = LEGEND[ch];
-      return (indoor && v === 1) ? 9 : v;
-    });
-  });
-  const w = grid[0].length;
-  grid.forEach(function (row, y) {
-    if (row.length !== w) throw new Error(def.name + " row " + y + " is " + row.length + ", expected " + w);
-  });
-  return { grid: grid, w: w, h: grid.length, name: def.name, edge: indoor ? 9 : 5 };
+function loadMap(id, spawn){
+  const m = MAPS[id];
+  currentMapId = id;
+  MAP = m.grid; W = m.w; H = m.h; WINDOW = m.window || null;
+  OBJECTS = m.objects; DOORS = m.doors; MAP_KIND = m.kind;
+  buildSolids();
+  player.fx = spawn.x; player.fy = spawn.y; player.face = spawn.face;
+  player.moving = false; player.phase = 0;
+  pathQ = []; keysHeld.clear(); joyVec = {x:0, y:0};
+  document.getElementById("mapTitle").textContent = m.title;
+  updateInfoNote(m.infoNote);
+  fit();
+  refreshPrompt();
+}
+function updateInfoNote(html){
+  document.getElementById("infoNoteText").innerHTML = html;
 }
 
-Object.keys(MAPS).forEach(function (id) {
-  MAPS[id].parsed = parseMap(MAPS[id], id !== "district1_street");
-  MAPS[id].id = id;
-});
-
-let world = MAPS.district1_street.parsed;   // the map we are standing in
-let worldId = "district1_street";
-let MAP_W = world.w, MAP_H = world.h;
-
-function cellAt(cx, cy) {
-  if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return world.edge;
-  return world.grid[cy][cx];
-}
-function isWall(cx, cy) { return cellAt(cx, cy) !== 0; }   // every prop is solid
-
-/* Step through a portal: swap the grid, move the player, reset state
-   that belonged to the old map. */
-function travelTo(portal) {
-  const dest = MAPS[portal.map];
-  if (!dest) return;
-  world   = dest.parsed;
-  worldId = dest.id;
-  MAP_W   = world.w;
-  MAP_H   = world.h;
-  player.x = portal.x;
-  player.y = portal.y;
-  player.a = portal.a;
-  talk = null;
-  if (talkEl) talkEl.style.display = "none";
-  diag = null;                          // the bench does not follow you
-  focusCell = -1; focusType = 0; flashType = 0;
-  msgUntil = 0;
-  if (msgEl) msgEl.style.opacity = "0";
-  say(dest.name);
-}
-function matOf(v) { return MAT[v] || MAT[1]; }
-
-/* ---------- 2. PLAYER --------------------------------------------- */
-const player = { x: 10.5, y: 11.6, a: -80 * Math.PI / 180 };  // on the street outside your shop
-
-const FOV        = 66 * Math.PI / 180;
-const TAN_HALF   = Math.tan(FOV / 2);
-const MOVE_SPEED = 3.0;    // cells / second
-const STRAFE_MUL = 0.85;
-const RUN_MUL    = 1.9;
-const TURN_SPEED = 2.4;    // radians / second
-const RADIUS     = 0.22;   // player collision radius
-const JOY_DEAD   = 0.16;   // joystick dead zone, fraction of its radius
-const LOOK_SENS  = 0.0055; // radians turned per pixel of look-drag
-const VIEW_DIST  = 32;     // distance at which everything is fully dim
-const GRID_STEP  = 2;      // floor grid line spacing, in map cells
-const GRID_DIST  = 11;     // ground grid draw distance
-
-/* ---------- 3. SCREEN / CHARACTER GRID ---------------------------- */
-const FONT_STACK = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace';
-const BG = "#03060a";
-
-const cv  = document.getElementById("screen");
-const ctx = cv.getContext("2d", { alpha: false });
-
-let W = 0, H = 0, fontPx = 14, cellW = 8, cellH = 15;
-let canvasLeft = 0, canvasTop = 0;
-let mapScale = 4, mapPanelH = 0;   // minimap geometry, so the HUD can dodge it
-let COLS = 0, ROWS = 0, offX = 0, offY = 0;
-
-let fbChar, fbShade;                       // character framebuffer
-let colTop, colBottom, colDepth;           // nearest surface per column
-let slabCount, slabDist, slabTop, slabBottom, slabCell, slabSide, slabType;
-let slabRayX, slabRayY;                    // ray direction per column, for tap hits
-let prevCX, prevCY;                        // floor-grid sampling scratch
-
-/* Shade levels run sparse/dim -> dense/bright. Each material has its
-   own glyph ramp (see MAT) and its own colour bank below, so the shop,
-   Mrs Ilic's and the plain block walls read as different surfaces even
-   though they share one density scale. */
-const LEVELS = 12;
-const BANK = 16;                            // palette slots reserved per bank
-const RAMP = MAT[1].ramp;                   // fallback ramp
-
-/* hue, saturation, min lum, max lum — one entry per bank */
-const BANKS = [
-  [197, 88, 10, 66],   // 0 plain block wall — steel cyan
-  [148, 78, 10, 60],   // 1 THE FIX          — green
-  [280, 62, 11, 64],   // 2 Mrs Ilic's       — violet
-  [ 52, 88, 12, 62],   // 3 rival's stall    — yellow
-  [218, 55,  6, 30],   // 4 skyline          — stays dim, reads as distance
-  [ 38, 95, 11, 58],   // 5 interactive      — amber
-  [ 26, 55, 20, 86]    // 6 people           — warm, brighter than any surface
+/* ---------------------------------------------------------------
+   ECONOMY — buy costs and recipes are placeholders (the world bible
+   only fixes relative rarity, not exact numbers). Easy to retune later.
+----------------------------------------------------------------*/
+const PARTS_CATALOG = [
+  {id:"wire",             name:"Wire",                 rarity:"Common",   cost:3},
+  {id:"screws",           name:"Screws / fasteners",   rarity:"Common",   cost:2},
+  {id:"cheap_bulb",       name:"Cheap bulb",           rarity:"Common",   cost:4},
+  {id:"lamp_cord",        name:"Lamp cord",            rarity:"Common",   cost:5},
+  {id:"switch",           name:"Switch",               rarity:"Uncommon", cost:12},
+  {id:"small_capacitor",  name:"Small capacitor",      rarity:"Uncommon", cost:10},
+  {id:"small_motor",      name:"Small motor",          rarity:"Uncommon", cost:14},
+  {id:"precision_sensor", name:"Precision sensor",     rarity:"Rare",     cost:35},
 ];
-const PALETTE = [];
-BANKS.forEach(function (bnk) {
-  const base = PALETTE.length;
-  for (let i = 0; i < LEVELS; i++) {
-    const t = i / (LEVELS - 1);
-    const lum = bnk[2] + (bnk[3] - bnk[2]) * Math.pow(t, 0.9);
-    PALETTE.push("hsl(" + bnk[0] + "," + bnk[1] + "%," + lum.toFixed(0) + "%)");
+
+// only recipes buildable at the apartment's hobbyist bench live here —
+// lamp_repair needs the shop workbench, so it isn't offered in this room.
+const RECIPES = [
+  {
+    id:"basic_nightlight",
+    name:"Basic nightlight",
+    inputs:[{id:"wire",name:"Wire",qty:1},{id:"cheap_bulb",name:"Cheap bulb",qty:1},{id:"small_capacitor",name:"Small capacitor",qty:1}],
+    output:{id:"basic_nightlight", name:"Nightlight (tinkered)"},
+    staminaCost:15,
+  },
+];
+
+// heavier jobs, only offered at the shop's real workbench
+const SHOP_RECIPES = [
+  {
+    id:"lamp_repair",
+    name:"Repair a lamp",
+    inputs:[{id:"wire",name:"Wire",qty:1},{id:"switch",name:"Switch",qty:1},{id:"lamp_cord",name:"Lamp cord",qty:1}],
+    output:{id:"repaired_lamp", name:"Repaired lamp"},
+    staminaCost:20,
+  },
+  {
+    id:"desk_fan",
+    name:"Build a desk fan",
+    inputs:[{id:"small_motor",name:"Small motor",qty:1},{id:"screws",name:"Screws / fasteners",qty:2},{id:"wire",name:"Wire",qty:1}],
+    output:{id:"desk_fan", name:"Desk fan"},
+    staminaCost:25,
+  },
+];
+
+// ---------------------------------------------------------------
+// NPCS — id, display name, portrait path, and a short line sequence.
+// `portrait` points at a file that doesn't exist yet; the dialogue box
+// tries to load it and falls back to a monogram if it 404s, so dropping
+// a real PNG at that path is the entire integration step later.
+// ---------------------------------------------------------------
+const NPCS = {
+  first_customer: {
+    name: "A customer",
+    portrait: "portraits/first_customer.png",
+    lines: [
+      "Oh — sorry, is it open? The sign out front still says CLOSED.",
+      "Heard this place used to be run by an old man who could fix anything.",
+      "No rush. I'll swing back once you're properly open.",
+    ],
+  },
+  mrs_flora: {
+    name: "Mrs Flora",
+    portrait: "portraits/mrs_flora.png",
+    lines: [
+      "Welcome in — mind the buckets, the floor's still wet from the morning water.",
+      "Lyra keeps the displays fresh these days. I mostly just do the arrangements now.",
+      "Let me know if you'd like something put together for someone in particular.",
+    ],
+  },
+  lyra: {
+    name: "Lyra",
+    portrait: "portraits/lyra.png",
+    lines: [
+      "Oh, hey! Haven't seen you in here before.",
+      "I'm just covering shifts around classes — Mrs Flora's basically raised me at this point.",
+      "Anyway, let me know if you need help picking something out.",
+    ],
+  },
+};
+
+// ---------------------------------------------------------------
+// SHOPS — generic goods catalogs, one entry per buyable location.
+// Anything bought here lands in the same `inventory` map as parts —
+// same storefront pattern as the repair shop's computer, just with
+// its own catalog and its own trigger object (id:"checkout").
+// ---------------------------------------------------------------
+const SHOPS = {
+  flower_shop: {
+    title: "Flora's Flowers",
+    subtitle: "Cut flowers, bought fresh. Gifts raise affinity once relationships exist.",
+    goods: [
+      {id:"daisies",          name:"Daisies",           price:6,  desc:"Simple, cheerful."},
+      {id:"wildflower_bunch", name:"Wildflower bunch",  price:8,  desc:"Loose and unfussy."},
+      {id:"tulips",           name:"Tulips",            price:10, desc:"A safe, classic choice."},
+      {id:"lilies",           name:"Lilies",            price:14, desc:"Elegant. A little formal."},
+      {id:"rose_bouquet",     name:"Rose bouquet",      price:22, desc:"Bold. Says something."},
+    ],
+  },
+};
+
+// starting kit: enough to demonstrate the system, not enough to finish the
+// nightlight outright — the capacitor has to come from the computer.
+let inventory = {wire:2, screws:3, cheap_bulb:1};
+let money = 40;
+let stamina = 100;
+
+function haveQty(id){ return inventory[id] || 0; }
+function canAfford(cost){ return money >= cost; }
+function canCraft(r){ return stamina >= r.staminaCost && r.inputs.every(i => haveQty(i.id) >= i.qty); }
+
+function setMoney(v){ money = Math.max(0, v); updateStats(); }
+function setStamina(v){ stamina = Math.max(0, Math.min(100, v)); updateStats(); }
+function updateStats(){
+  document.querySelector("#stats .money").textContent = `₴${money}`;
+  document.getElementById("staminaBar").style.width = stamina + "%";
+}
+updateStats();
+
+const P = {
+  void:"#1B1714", wallTop:"#8A7059", wallFace:"#5E4A3B", wallEdge:"#42332A",
+  floor:"#C2A177", plank:"#B18E64", tile:"#A9C4BA", grout:"#8FB0A4",
+  bedFrame:"#7A5A3C", quilt:"#C0596A", quiltFold:"#A94A5B", pillow:"#F0E6D4",
+  couch:"#4F6D8C", couchSeat:"#648AAD", tvBody:"#2C3237", tvScreen:"#89AFC0",
+  deskTop:"#C9924F", deskSide:"#8E6432", part:"#D9CBA8",
+  door:"#A8763F", doorDark:"#7E5629", porcelain:"#E9F0EC", porcShade:"#C6D5CE",
+  skin:"#E0AE83", shirt:"#3F6B5E", hair:"#3A2A22", pants:"#2E3B4A", shoe:"#241B15",
+  counterTop:"#B18E64", counterFace:"#6E5439",
+  rackFrame:"#5E4A3B", rackItem:"#D9CBA8",
+  phoneBody:"#3A3F44", phoneKey:"#C2A177",
+  shelfWood:"#8E6432", crate:"#B18E64",
+  npcShirt:"#8A5A5A", npcHair:"#2A2018", npcPants:"#454038",
+  junk:"#6E6455", junkDark:"#4A4438",
+  tarp:"#5C6B62", tarpFold:"#465049",
+  trunkBody:"#5A4530", trunkBand:"#C2A177",
+};
+
+const BLOCKS = {
+  morning:   {tint:"#FFD49A", tintA:0.10, shaft:"#FFE7BE", shaftA:0.20, skew:-0.55, lamps:0},
+  midday:    {tint:"#FFF6E4", tintA:0.05, shaft:"#FFFAEE", shaftA:0.14, skew:0.05,  lamps:0},
+  afternoon: {tint:"#FFAE5C", tintA:0.13, shaft:"#FFC888", shaftA:0.18, skew:0.75,  lamps:0},
+  evening:   {tint:"#1E2C55", tintA:0.42, shaft:"#2A3A6B", shaftA:0.00, skew:0,     lamps:1},
+};
+let block = "morning";
+
+/* --------------------------- STATE ----------------------------- */
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+const frame = document.getElementById("frame");
+let T = 0;
+
+const R = 0.30;               // player collision radius, in tiles
+const SPEED = 3.4;            // tiles per second at full stick
+const player = {fx:10.5, fy:3.5, face:"west", moving:false, phase:0};
+let pathQ = [];                // click-to-walk waypoints [{x,y}]
+
+const solidGrid = [];
+function buildSolids(){
+  for(let y=0;y<H;y++){
+    solidGrid[y] = [];
+    for(let x=0;x<W;x++){
+      const ch = MAP[y][x];
+      solidGrid[y][x] = "# DXafr".includes(ch);
+    }
   }
-  while (PALETTE.length < base + BANK) PALETTE.push(PALETTE[base]);
-});
-const ALT = 5 * BANK;                       // interactive bank, used by the HUD
-
-function layout() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  // measure the element, not the window: with 100dvh they differ on mobile
-  const rect = cv.getBoundingClientRect();
-  canvasLeft = rect.left;
-  canvasTop  = rect.top;
-  W = Math.max(1, Math.round(rect.width  || window.innerWidth));
-  H = Math.max(1, Math.round(rect.height || window.innerHeight));
-  cv.width  = Math.max(1, Math.round(W * dpr));
-  cv.height = Math.max(1, Math.round(H * dpr));
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  fontPx = Math.max(8, Math.round(Math.min(W, H) / 46));
-  ctx.font = fontPx + "px " + FONT_STACK;
-  cellW = ctx.measureText("M").width || fontPx * 0.6;
-  cellH = Math.max(2, Math.round(fontPx * 1.08));
-
-  COLS = Math.max(8, Math.floor(W / cellW));
-  ROWS = Math.max(8, Math.floor(H / cellH));
-  offX = (W - COLS * cellW) / 2;
-  offY = (H - ROWS * cellH) / 2;
-
-  fbChar  = new Array(COLS * ROWS).fill(" ");
-  fbShade = new Uint8Array(COLS * ROWS);
-
-  colTop    = new Int32Array(COLS);
-  colBottom = new Int32Array(COLS);
-  colDepth  = new Float32Array(COLS);
-
-  const cells = COLS * MAX_SLABS;
-  slabCount  = new Uint8Array(COLS);
-  slabDist   = new Float32Array(cells);
-  slabTop    = new Int32Array(cells);
-  slabBottom = new Int32Array(cells);
-  slabCell   = new Int32Array(cells);
-  slabSide   = new Uint8Array(cells);
-  slabType   = new Uint8Array(cells);
-  slabRayX   = new Float32Array(COLS);
-  slabRayY   = new Float32Array(COLS);
-
-  prevCX = new Int32Array(COLS);
-  prevCY = new Int32Array(COLS);
-
-  mapScale  = Math.max(3, Math.round(Math.min(W, H) / 170));
-  mapPanelH = MAP_H * mapScale + 6;
-
-  joy.radius = Math.round(Math.max(46, Math.min(W, H) * 0.14));
-  joy.homeX  = joy.radius + Math.round(Math.min(W, H) * 0.06);
-  joy.homeY  = H - joy.radius - Math.max(30, Math.round(Math.min(W, H) * 0.06));
-  if (typeof setHelp === "function") setHelp();   // help offset depends on the minimap
-  if (!joy.active) { joy.curX = joy.homeX; joy.curY = joy.homeY; }
+  for(const o of OBJECTS)
+    for(let y=o.y;y<o.y+o.h;y++)
+      for(let x=o.x;x<o.x+o.w;x++)
+        if(solidGrid[y]) solidGrid[y][x] = true;
 }
-window.addEventListener("resize", layout);
-window.addEventListener("orientationchange", function () { setTimeout(layout, 120); });
-if (window.visualViewport) window.visualViewport.addEventListener("resize", layout);
+const cellWalkable = (x,y) => x>=0 && y>=0 && x<W && y<H && !solidGrid[y][x];
+const blockedAt = (cx,cy) => !cellWalkable(Math.floor(cx), Math.floor(cy));
 
-function put(col, row, ch, shade) {
-  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
-  const i = row * COLS + col;
-  fbChar[i]  = ch;
-  fbShade[i] = shade;
+function moveAxisX(dx){
+  if(dx===0) return;
+  const nx = player.fx + dx;
+  const edge = dx>0 ? nx+R : nx-R;
+  if(blockedAt(edge, player.fy-R*0.85) || blockedAt(edge, player.fy+R*0.85)) return;
+  player.fx = nx;
+}
+function moveAxisY(dy){
+  if(dy===0) return;
+  const ny = player.fy + dy;
+  const edge = dy>0 ? ny+R : ny-R;
+  if(blockedAt(player.fx-R*0.85, edge) || blockedAt(player.fx+R*0.85, edge)) return;
+  player.fy = ny;
 }
 
-/* ---------- 4. INPUT ---------------------------------------------- */
-/* Touch is the control scheme. The keyboard is kept only as a desktop
-   testing convenience — set DEV_KEYS to false for touch-only. */
-const DEV_KEYS = true;
+/* --------------------------- DRAWING --------------------------- */
+function tileAt(x,y){ return MAP[y][x]; }
 
-const keys = Object.create(null);
-let showFill = true, showMap = true;
-
-if (DEV_KEYS) {
-  window.addEventListener("keydown", function (e) {
-    keys[e.code] = true;
-    if (e.code === "Space" || e.code === "KeyF") {
-      if (!e.repeat) {
-        if (talk) advanceDialogue();
-        else {
-          const who = npcInView();
-          if (who) startDialogue(who.npc);
-          else { const t = targetAt(COLS >> 1, null); if (t) interact(t); }
+function drawFloors(){
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const ch = tileAt(x,y);
+    if(ch === " " || ch === "#") continue;
+    const px = x*T, py = y*T;
+    if(ch === "t"){
+      ctx.fillStyle = P.tile; ctx.fillRect(px,py,T,T);
+      ctx.strokeStyle = P.grout; ctx.lineWidth = Math.max(1,T*0.035);
+      ctx.strokeRect(px+T*0.25, py+T*0.25, T*0.5, T*0.5);
+      ctx.strokeRect(px, py, T, T);
+    } else {
+      ctx.fillStyle = P.floor; ctx.fillRect(px,py,T,T);
+      ctx.strokeStyle = P.plank; ctx.lineWidth = Math.max(1,T*0.028);
+      ctx.beginPath();
+      ctx.moveTo(px, py+T*0.34); ctx.lineTo(px+T, py+T*0.34);
+      ctx.moveTo(px, py+T*0.68); ctx.lineTo(px+T, py+T*0.68);
+      ctx.stroke();
+      ctx.beginPath();
+      const off = ((x+y)%2) ? T*0.5 : T*0.16;
+      ctx.moveTo(px+off, py+T*0.34); ctx.lineTo(px+off, py+T*0.68);
+      ctx.stroke();
+    }
+  }
+}
+function drawWalls(){
+  const lip = T*0.34;
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    if(tileAt(x,y) !== "#") continue;
+    const px = x*T, py = y*T;
+    ctx.fillStyle = P.wallTop; ctx.fillRect(px,py,T,T);
+    const below = (y+1<H) ? tileAt(x,y+1) : " ";
+    if(below === "." || below === "t" || below === "d"){
+      ctx.fillStyle = P.wallFace;
+      ctx.fillRect(px, py+T-lip, T, lip);
+    }
+    ctx.strokeStyle = P.wallEdge; ctx.lineWidth = Math.max(1,T*0.03);
+    ctx.strokeRect(px+0.5, py+0.5, T-1, T-1);
+  }
+  const wx = WINDOW.x*T, wy = WINDOW.y*T;
+  ctx.fillStyle = "#BFD4DE";
+  ctx.fillRect(wx+T*0.12, wy+T*0.30, WINDOW.w*T-T*0.24, T*0.58);
+  ctx.strokeStyle = P.wallEdge; ctx.lineWidth = Math.max(1,T*0.05);
+  ctx.strokeRect(wx+T*0.12, wy+T*0.30, WINDOW.w*T-T*0.24, T*0.58);
+  ctx.beginPath();
+  ctx.moveTo(wx+WINDOW.w*T/2, wy+T*0.30);
+  ctx.lineTo(wx+WINDOW.w*T/2, wy+T*0.88);
+  ctx.stroke();
+}
+function drawDoors(){
+  for(const d of DOORS){
+    const px = d.x*T, py = d.y*T;
+    ctx.fillStyle = P.door;
+    if(d.side === "east"){
+      ctx.fillRect(px+T*0.16, py+T*0.10, T*0.68, T*0.80);
+      ctx.strokeStyle = P.doorDark; ctx.lineWidth = Math.max(1,T*0.05);
+      ctx.strokeRect(px+T*0.16, py+T*0.10, T*0.68, T*0.80);
+      ctx.fillStyle = P.doorDark;
+      ctx.fillRect(px+T*0.26, py+T*0.46, T*0.10, T*0.08);
+    } else {
+      ctx.fillRect(px+T*0.10, py+T*0.16, T*0.80, T*0.68);
+      ctx.strokeStyle = P.doorDark; ctx.lineWidth = Math.max(1,T*0.05);
+      ctx.strokeRect(px+T*0.10, py+T*0.16, T*0.80, T*0.68);
+      ctx.fillStyle = P.doorDark;
+      ctx.fillRect(px+T*0.70, py+T*0.46, T*0.10, T*0.10);
+    }
+  }
+}
+function drawObjects(){
+  if(!OBJECTS) return;
+  for(const o of OBJECTS){
+    const px = o.x*T, py = o.y*T, w = o.w*T, h = o.h*T;
+    switch(o.id){
+      case "bed": {
+        ctx.fillStyle = P.bedFrame;
+        ctx.fillRect(px+T*0.10, py+T*0.06, w-T*0.20, h-T*0.12);
+        ctx.fillStyle = P.quilt;
+        ctx.fillRect(px+T*0.16, py+T*0.52, w-T*0.32, h-T*0.64);
+        ctx.strokeStyle = P.quiltFold; ctx.lineWidth = Math.max(1,T*0.05);
+        for(let i=1;i<3;i++){
+          const yy = py+T*0.52 + (h-T*0.64)*i/3;
+          ctx.beginPath(); ctx.moveTo(px+T*0.16, yy); ctx.lineTo(px+w-T*0.16, yy); ctx.stroke();
         }
+        ctx.fillStyle = P.pillow;
+        ctx.fillRect(px+T*0.24, py+T*0.16, w-T*0.48, T*0.30);
+        break;
+      }
+      case "couch": {
+        ctx.fillStyle = P.couch;
+        ctx.fillRect(px+T*0.06, py+T*0.12, w-T*0.12, h-T*0.20);
+        ctx.fillStyle = P.couchSeat;
+        ctx.fillRect(px+T*0.14, py+T*0.42, w-T*0.28, h-T*0.56);
+        ctx.strokeStyle = P.couch; ctx.lineWidth = Math.max(1,T*0.05);
+        ctx.beginPath(); ctx.moveTo(px+w/2, py+T*0.42); ctx.lineTo(px+w/2, py+h-T*0.14); ctx.stroke();
+        break;
+      }
+      case "tv": {
+        ctx.fillStyle = P.tvBody;
+        ctx.fillRect(px+T*0.10, py+T*0.24, w-T*0.20, h-T*0.44);
+        ctx.fillStyle = P.tvScreen;
+        ctx.fillRect(px+T*0.18, py+T*0.32, w-T*0.36, h-T*0.62);
+        ctx.fillStyle = P.tvBody;
+        ctx.fillRect(px+T*0.36, py+h-T*0.22, w-T*0.72, T*0.08);
+        break;
+      }
+      case "desk": {
+        ctx.fillStyle = P.deskSide;
+        ctx.fillRect(px+T*0.06, py+T*0.20, w-T*0.12, h-T*0.26);
+        ctx.fillStyle = P.deskTop;
+        ctx.fillRect(px+T*0.06, py+T*0.20, w-T*0.12, h-T*0.46);
+        ctx.fillStyle = P.tvBody;
+        ctx.fillRect(px+T*0.20, py+T*0.26, T*0.46, T*0.32);
+        ctx.fillStyle = P.tvScreen;
+        ctx.fillRect(px+T*0.25, py+T*0.31, T*0.36, T*0.22);
+        ctx.fillStyle = P.part;
+        ctx.fillRect(px+w-T*0.62, py+T*0.34, T*0.16, T*0.10);
+        ctx.fillRect(px+w-T*0.40, py+T*0.30, T*0.10, T*0.18);
+        ctx.fillRect(px+w-T*0.62, py+T*0.54, T*0.26, T*0.07);
+        break;
+      }
+      case "sink": {
+        ctx.fillStyle = P.porcShade;
+        ctx.beginPath(); ctx.arc(px+T/2, py+T/2, T*0.36, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = P.porcelain;
+        ctx.beginPath(); ctx.arc(px+T/2, py+T/2, T*0.28, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = P.porcShade;
+        ctx.fillRect(px+T*0.46, py+T*0.10, T*0.08, T*0.18);
+        break;
+      }
+      case "toilet": {
+        ctx.fillStyle = P.porcelain;
+        ctx.beginPath(); ctx.ellipse(px+T/2, py+T*0.56, T*0.26, T*0.32, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = P.porcShade;
+        ctx.fillRect(px+T*0.24, py+T*0.10, T*0.52, T*0.20);
+        break;
+      }
+      case "rack": {
+        ctx.fillStyle = P.rackFrame;
+        ctx.fillRect(px+T*0.10, py+T*0.10, w-T*0.20, h-T*0.16);
+        ctx.fillStyle = P.rackItem;
+        ctx.fillRect(px+T*0.18, py+T*0.20, w-T*0.36, T*0.14);
+        ctx.fillRect(px+T*0.18, py+T*0.40, w-T*0.36, T*0.14);
+        ctx.fillRect(px+T*0.18, py+T*0.60, w-T*0.36, T*0.14);
+        break;
+      }
+      case "counter": case "checkout": {
+        ctx.fillStyle = P.counterFace;
+        ctx.fillRect(px, py+T*0.30, w, h-T*0.30);
+        ctx.fillStyle = P.counterTop;
+        ctx.fillRect(px, py+T*0.14, w, T*0.22);
+        ctx.strokeStyle = P.wallEdge; ctx.lineWidth = Math.max(1,T*0.03);
+        ctx.strokeRect(px+0.5, py+T*0.14+0.5, w-1, T*0.22-1);
+        break;
+      }
+      case "shop_bench": {
+        ctx.fillStyle = P.deskSide;
+        ctx.fillRect(px+T*0.06, py+T*0.20, w-T*0.12, h-T*0.26);
+        ctx.fillStyle = P.deskTop;
+        ctx.fillRect(px+T*0.06, py+T*0.20, w-T*0.12, h-T*0.46);
+        ctx.fillStyle = P.part;
+        ctx.fillRect(px+T*0.16, py+T*0.28, T*0.18, T*0.10);
+        ctx.fillRect(px+T*0.40, py+T*0.26, T*0.10, T*0.16);
+        ctx.fillRect(px+w-T*0.30, py+T*0.30, T*0.16, T*0.08);
+        break;
+      }
+      case "phone": {
+        ctx.fillStyle = P.phoneBody;
+        ctx.fillRect(px+T*0.22, py+T*0.14, T*0.56, T*0.72);
+        ctx.fillStyle = P.phoneKey;
+        for(let r=0;r<3;r++) for(let c=0;c<2;c++)
+          ctx.fillRect(px+T*0.30+c*T*0.22, py+T*0.48+r*T*0.14, T*0.14, T*0.08);
+        break;
+      }
+      case "shelf": {
+        ctx.fillStyle = P.shelfWood;
+        ctx.fillRect(px+T*0.08, py+T*0.08, w-T*0.16, h-T*0.14);
+        ctx.fillStyle = P.crate;
+        ctx.fillRect(px+T*0.16, py+T*0.18, w-T*0.32, T*0.20);
+        ctx.fillRect(px+T*0.16, py+T*0.46, w-T*0.32, T*0.20);
+        break;
+      }
+      case "npc": {
+        drawNpcSprite(px, py, w, h);
+        break;
+      }
+      case "junk": {
+        ctx.fillStyle = P.junkDark;
+        ctx.beginPath(); ctx.ellipse(px+T/2, py+T*0.62, T*0.34, T*0.16, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = P.junk;
+        ctx.fillRect(px+T*0.22, py+T*0.30, T*0.18, T*0.28);
+        ctx.fillRect(px+T*0.46, py+T*0.20, T*0.14, T*0.40);
+        ctx.fillRect(px+T*0.62, py+T*0.36, T*0.16, T*0.22);
+        break;
+      }
+      case "coveredbench": {
+        ctx.fillStyle = P.tarp;
+        ctx.fillRect(px+T*0.06, py+T*0.18, w-T*0.12, h-T*0.26);
+        ctx.strokeStyle = P.tarpFold; ctx.lineWidth = Math.max(1,T*0.04);
+        ctx.beginPath();
+        ctx.moveTo(px+T*0.06, py+T*0.40); ctx.lineTo(px+w-T*0.06, py+T*0.34);
+        ctx.moveTo(px+T*0.06, py+T*0.58); ctx.lineTo(px+w-T*0.06, py+T*0.52);
+        ctx.stroke();
+        break;
+      }
+      case "trunk": {
+        ctx.fillStyle = P.trunkBody;
+        ctx.fillRect(px+T*0.14, py+T*0.30, T*0.72, T*0.54);
+        ctx.fillStyle = P.trunkBand;
+        ctx.fillRect(px+T*0.14, py+T*0.44, T*0.72, T*0.08);
+        ctx.fillRect(px+T*0.44, py+T*0.30, T*0.12, T*0.54);
+        break;
+      }
+      case "flower_display": {
+        ctx.fillStyle = "rgba(0,0,0,0.14)";
+        ctx.beginPath(); ctx.ellipse(px+T*0.5, py+T*0.66, T*0.32, T*0.14, 0, 0, Math.PI*2); ctx.fill();
+        const petals = [["#E8637F",-0.13,-0.18],["#E0A24A",0.11,-0.20],["#7FB08A",0.02,-0.05],
+                         ["#B58BD9",-0.11,0.02],["#E38B5D",0.15,-0.02]];
+        for(const [color,dx,dy] of petals){
+          ctx.fillStyle = color;
+          ctx.beginPath(); ctx.arc(px+T*(0.5+dx), py+T*(0.46+dy), T*0.11, 0, Math.PI*2); ctx.fill();
+        }
+        break;
+      }
+      case "arrangement_table": {
+        ctx.fillStyle = P.deskSide;
+        ctx.fillRect(px+T*0.04, py+T*0.30, w-T*0.08, h-T*0.36);
+        ctx.fillStyle = P.deskTop;
+        ctx.fillRect(px+T*0.04, py+T*0.30, w-T*0.08, h-T*0.50);
+        ctx.fillStyle = "#E8637F";
+        ctx.beginPath(); ctx.arc(px+T*0.32, py+T*0.30, T*0.10, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#7FB08A";
+        ctx.beginPath(); ctx.arc(px+w-T*0.32, py+T*0.30, T*0.10, 0, Math.PI*2); ctx.fill();
+        break;
+      }
+      case "cooler_unit": {
+        ctx.fillStyle = "#5F7B85";
+        ctx.fillRect(px+T*0.10, py+T*0.10, w-T*0.20, h-T*0.16);
+        ctx.fillStyle = "#BFD8DE";
+        ctx.fillRect(px+T*0.18, py+T*0.18, w-T*0.36, h-T*0.34);
+        ctx.strokeStyle = "#3E5359"; ctx.lineWidth = Math.max(1,T*0.03);
+        ctx.strokeRect(px+T*0.18, py+T*0.18, w-T*0.36, h-T*0.34);
+        break;
       }
     }
-    if (e.code === "Escape" && diag) closeDiagnostic();
-  if (e.code === "KeyT") showFill = !showFill;
-    if (e.code === "KeyM") showMap  = !showMap;
-    if (e.code.indexOf("Arrow") === 0 || e.code === "Space") e.preventDefault();
-  });
-  window.addEventListener("keyup", function (e) { keys[e.code] = false; });
-  window.addEventListener("blur", function () { for (const k in keys) keys[k] = false; });
+  }
+}
+function drawNpcSprite(px, py, w, h){
+  const cx = px + (w||T)/2, cy = py + (h||T)*0.86;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = "rgba(0,0,0,0.20)";
+  ctx.beginPath(); ctx.ellipse(0, T*0.02, T*0.24, T*0.10, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = P.npcPants;
+  ctx.fillRect(-T*0.13, -T*0.18, T*0.11, T*0.20);
+  ctx.fillRect(T*0.02, -T*0.18, T*0.11, T*0.20);
+  ctx.fillStyle = P.npcShirt;
+  ctx.fillRect(-T*0.20, -T*0.44, T*0.40, T*0.30);
+  ctx.fillStyle = P.skin;
+  ctx.beginPath(); ctx.arc(0, -T*0.54, T*0.16, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = P.npcHair;
+  ctx.beginPath(); ctx.arc(0, -T*0.58, T*0.165, Math.PI, 0); ctx.fill();
+  ctx.restore();
 }
 
-// losing focus mid-drag must not leave the stick stuck on
-window.addEventListener("blur", function () {
-  joy.pointerId = null;
-  joy.active = false;
-  joy.curX = joy.homeX; joy.curY = joy.homeY;
-  lookId = null;
-  lookDelta = 0;
-});
-
-function down() {
-  for (let i = 0; i < arguments.length; i++) if (keys[arguments[i]]) return true;
-  return false;
-}
-
-/* ---------- 4b. TOUCH: VIRTUAL JOYSTICK + LOOK-DRAG ---------------- *
- *  Fixed joystick, bottom-left: press on or near it and the knob
- *  follows your thumb. Push up/down to walk, left/right to turn.
- *  Anywhere else: drag to look around, or tap to fire a world-space
- *  interaction event. Pointer events, so a desktop mouse drives the
- *  same code path a thumb does.
- * ------------------------------------------------------------------ */
-const joy = {
-  pointerId: null, active: false,
-  curX: 0, curY: 0,          // knob position, absolute screen pixels
-  homeX: 0, homeY: 0,        // fixed base — never moves
-  radius: 60
+/* ------------------------ EXTERIOR (street) --------------------- */
+const EP = {
+  road:"#3A3630", roadLine:"#2E2A25",
+  sidewalk:"#B7A98C", sidewalkLine:"#A5966F",
+  grass:"#5C6B45",
+  laneMark:"rgba(230,210,160,0.55)",
+  apt:"#3E6E86", flower:"#4F8F5B", resto:"#A85B3B", bg:"#3B4048",
+  ilic:"#7C6B4A", myshop:"#4A7A6E", bruno:"#8A5A3A",
 };
-const JOY_GRAB = 1.45;       // press within this multiple of the radius to grab
-let lookId = null, lookLastX = 0, lookDelta = 0;
-const coarsePointer = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-let touchUsed = false;
-
-function pointerPos(e) {
-  return { x: e.clientX - canvasLeft, y: e.clientY - canvasTop };
-}
-function onStick(p) {
-  return Math.hypot(p.x - joy.homeX, p.y - joy.homeY) <= joy.radius * JOY_GRAB;
-}
-
-/* A press counts as a tap if it is brief and barely moves. The pointer
-   driving the stick never taps, so working the joystick cannot fire an
-   interaction; every other pointer can. */
-const TAP_MS = 280, TAP_SLOP = 12;
-const taps = new Map();
-
-cv.addEventListener("pointerdown", function (e) {
-  if (e.pointerType === "mouse" && e.button !== 0) return;
-  const p = pointerPos(e);
-  if (e.pointerType !== "mouse") { touchUsed = true; setHelp(); }
-
-  const grab = joy.pointerId === null && onStick(p);
-  taps.set(e.pointerId, { x: p.x, y: p.y, t: performance.now(), blocked: grab });
-
-  if (grab) {
-    joy.pointerId = e.pointerId;
-    joy.active = true;
-    joy.curX = p.x; joy.curY = p.y;
-  } else if (lookId === null) {
-    lookId = e.pointerId;
-    lookLastX = p.x;
+// building tile → color, one entry per district's exterior letters — extend
+// here rather than in the draw functions when a new district gets a street
+const BUILDING_COLORS = { a:EP.apt, f:EP.flower, r:EP.resto, i:EP.ilic, s:EP.myshop, b:EP.bruno, "#":EP.bg };
+function drawGroundExt(){
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const ch = tileAt(x,y);
+    if(ch in BUILDING_COLORS) continue;   // buildings get their own pass
+    const px = x*T, py = y*T;
+    if(ch === "="){
+      ctx.fillStyle = EP.road; ctx.fillRect(px,py,T,T);
+      ctx.strokeStyle = EP.roadLine; ctx.lineWidth = Math.max(1,T*0.02);
+      ctx.strokeRect(px,py,T,T);
+    } else if(ch === ","){
+      ctx.fillStyle = EP.grass; ctx.fillRect(px,py,T,T);
+    } else {
+      // sidewalk base — also sits under 'D' and 'X' as their threshold
+      ctx.fillStyle = EP.sidewalk; ctx.fillRect(px,py,T,T);
+      ctx.strokeStyle = EP.sidewalkLine; ctx.lineWidth = Math.max(1,T*0.02);
+      ctx.strokeRect(px,py,T,T);
+    }
   }
-  if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
-  e.preventDefault();
-});
-
-cv.addEventListener("pointermove", function (e) {
-  const p = pointerPos(e);
-  const tap = taps.get(e.pointerId);
-  if (tap && Math.hypot(p.x - tap.x, p.y - tap.y) > TAP_SLOP) tap.blocked = true;
-
-  if (e.pointerId === joy.pointerId) {
-    joy.curX = p.x; joy.curY = p.y;
-    e.preventDefault();
-  } else if (e.pointerId === lookId) {
-    lookDelta += (p.x - lookLastX) * LOOK_SENS;
-    lookLastX = p.x;
-    e.preventDefault();
-  }
-});
-
-function releasePointer(e) {
-  if (e.pointerId === joy.pointerId) {
-    joy.pointerId = null;
-    joy.active = false;
-    joy.curX = joy.homeX; joy.curY = joy.homeY;   // knob recentres
-  } else if (e.pointerId === lookId) {
-    lookId = null;
+  drawLaneMarkings();
+}
+function drawLaneMarkings(){
+  ctx.strokeStyle = EP.laneMark;
+  ctx.lineWidth = Math.max(1, T*0.05);
+  ctx.setLineDash([T*0.28, T*0.22]);
+  ctx.beginPath(); ctx.moveTo(11.5*T, 0); ctx.lineTo(11.5*T, H*T); ctx.stroke();   // Main St
+  ctx.beginPath(); ctx.moveTo(2*T, 0);    ctx.lineTo(2*T, H*T);    ctx.stroke();   // Side St
+  ctx.beginPath(); ctx.moveTo(0, 5.5*T);  ctx.lineTo(W*T, 5.5*T);  ctx.stroke();   // Cross St A
+  ctx.beginPath(); ctx.moveTo(0, 12.5*T); ctx.lineTo(W*T, 12.5*T); ctx.stroke();   // Cross St B
+  ctx.setLineDash([]);
+}
+function drawBuildingsExt(){
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const ch = tileAt(x,y);
+    if(!"afr#".includes(ch)) continue;
+    const px=x*T, py=y*T;
+    ctx.fillStyle = ch==="a" ? EP.apt : ch==="f" ? EP.flower : ch==="r" ? EP.resto : EP.bg;
+    ctx.fillRect(px,py,T,T);
+    ctx.fillStyle = "rgba(0,0,0,0.16)";
+    ctx.fillRect(px, py+T*0.80, T, T*0.20);   // base/plinth shadow
+    ctx.strokeStyle = "rgba(0,0,0,0.25)"; ctx.lineWidth = Math.max(1,T*0.03);
+    ctx.strokeRect(px+0.5, py+0.5, T-1, T-1);
+    if(ch !== "#"){
+      ctx.fillStyle = "rgba(255,235,190,0.55)";
+      ctx.fillRect(px+T*0.22, py+T*0.22, T*0.18, T*0.18);
+      ctx.fillRect(px+T*0.60, py+T*0.22, T*0.18, T*0.18);
+    }
   }
 }
-cv.addEventListener("pointerup", function (e) {
-  const tap = taps.get(e.pointerId);
-  taps.delete(e.pointerId);
-  if (tap && !tap.blocked && performance.now() - tap.t < TAP_MS) {
-    const p = pointerPos(e);
-    fireWorldTap(p.x, p.y);
+function drawObjectsExt(){
+  if(!OBJECTS) return;
+  for(const o of OBJECTS){
+    const px = o.x*T, py = o.y*T;
+    if(o.id === "lamp"){
+      ctx.strokeStyle = "#5A5044"; ctx.lineWidth = Math.max(1,T*0.06);
+      ctx.beginPath(); ctx.moveTo(px+T*0.5, py+T*0.95); ctx.lineTo(px+T*0.5, py+T*0.35); ctx.stroke();
+      const lit = BLOCKS[block].lamps;
+      ctx.fillStyle = lit ? "#FFD98A" : "#8C8272";
+      ctx.beginPath(); ctx.arc(px+T*0.5, py+T*0.26, T*0.14, 0, Math.PI*2); ctx.fill();
+      if(lit) pool(px+T*0.5, py+T*0.3, T*1.6, "#FFD98A", 0.22);
+    } else if(o.id === "dumpster"){
+      ctx.fillStyle = "#5B6B47";
+      ctx.fillRect(px+T*0.10, py+T*0.30, T*0.80, T*0.55);
+      ctx.fillStyle = "#4A5A3A";
+      ctx.fillRect(px+T*0.06, py+T*0.22, T*0.88, T*0.14);
+      ctx.strokeStyle = "#39442D"; ctx.lineWidth = Math.max(1,T*0.03);
+      ctx.strokeRect(px+T*0.10, py+T*0.30, T*0.80, T*0.55);
+    }
   }
-  releasePointer(e);
-});
-cv.addEventListener("pointercancel", function (e) { taps.delete(e.pointerId); releasePointer(e); });
-cv.addEventListener("lostpointercapture", releasePointer);
-cv.addEventListener("contextmenu", function (e) { e.preventDefault(); });
-
-/* Joystick deflection as x/y in -1..1, dead zone removed and the
-   remainder rescaled so it still reaches full tilt at the rim. */
-function joyVector() {
-  if (!joy.active) return { x: 0, y: 0 };
-  let dx = (joy.curX - joy.homeX) / joy.radius;
-  let dy = (joy.curY - joy.homeY) / joy.radius;
-  let mag = Math.hypot(dx, dy);
-  if (mag < 1e-6) return { x: 0, y: 0 };
-  if (mag > 1) { dx /= mag; dy /= mag; mag = 1; }
-  if (mag <= JOY_DEAD) return { x: 0, y: 0 };
-  const scaled = Math.pow((mag - JOY_DEAD) / (1 - JOY_DEAD), 1.3) / mag;
-  return { x: dx * scaled, y: dy * scaled };
+}
+function drawLightExt(){
+  const b = BLOCKS[block];
+  ctx.fillStyle = hexA(b.tint, b.tintA);
+  ctx.fillRect(0,0,cv.width,cv.height);
 }
 
-/* ---------- 5. MOVEMENT + COLLISION ------------------------------- */
-function free(nx, ny) {
-  const r = RADIUS;
-  return !isWall(Math.floor(nx - r), Math.floor(ny - r)) &&
-         !isWall(Math.floor(nx + r), Math.floor(ny - r)) &&
-         !isWall(Math.floor(nx - r), Math.floor(ny + r)) &&
-         !isWall(Math.floor(nx + r), Math.floor(ny + r));
-}
+/* ------------------------ PLAYER SPRITE ------------------------- */
+function drawPlayer(){
+  const px = player.fx*T, py = player.fy*T;
+  const swing = player.moving ? Math.sin(player.phase) : 0;   // -1..1 leg cycle
+  const bob   = player.moving ? Math.abs(Math.sin(player.phase)) * T*0.05 : 0;
+  const cy = py - bob;
 
-function update(dt) {
-  if (talk || diag) { lookDelta = 0; return; }   // dialogue and the bench hold you in place
-  let turn = 0, fwd = 0, strafe = 0;
-  if (down("KeyA", "ArrowLeft"))  turn -= 1;
-  if (down("KeyD", "ArrowRight")) turn += 1;
-  if (down("KeyW", "ArrowUp"))    fwd  += 1;
-  if (down("KeyS", "ArrowDown"))  fwd  -= 1;
-  if (down("KeyQ")) strafe -= 1;
-  if (down("KeyE")) strafe += 1;
+  // shadow stays grounded regardless of bob
+  ctx.fillStyle = "rgba(0,0,0,0.20)";
+  ctx.beginPath(); ctx.ellipse(px, py+T*0.30, T*0.24, T*0.10, 0, 0, Math.PI*2); ctx.fill();
 
-  const j = joyVector();
-  fwd  -= j.y;              // screen-up on the stick is forward
-  turn += j.x;
-  if (fwd  >  1) fwd  =  1; else if (fwd  < -1) fwd  = -1;
-  if (turn >  1) turn =  1; else if (turn < -1) turn = -1;
+  const facingX = player.face === "east" ? 1 : player.face === "west" ? -1 : 0;
+  const legLen = T*0.20, legW = T*0.11;
+  const legOffset = swing * T*0.10;
 
-  const run = down("ShiftLeft", "ShiftRight") ? RUN_MUL : 1;
-  player.a += turn * TURN_SPEED * dt + lookDelta;
-  lookDelta = 0;            // look-drag is positional, not rate-based
-  if (player.a > Math.PI)  player.a -= Math.PI * 2;
-  if (player.a < -Math.PI) player.a += Math.PI * 2;
+  ctx.save();
+  ctx.translate(px, cy);
 
-  const dx = Math.cos(player.a), dy = Math.sin(player.a);
-  // strafe axis = facing rotated 90 degrees clockwise on screen
-  let mx = (dx * fwd + -dy * strafe * STRAFE_MUL) * MOVE_SPEED * run * dt;
-  let my = (dy * fwd +  dx * strafe * STRAFE_MUL) * MOVE_SPEED * run * dt;
+  // legs (stride: one forward, one back, swapping with the phase)
+  ctx.fillStyle = P.pants;
+  ctx.fillRect(-legW*1.15, T*0.16 - legOffset*0.5, legW, legLen);
+  ctx.fillRect(legW*0.15,  T*0.16 + legOffset*0.5, legW, legLen);
+  ctx.fillStyle = P.shoe;
+  ctx.fillRect(-legW*1.15, T*0.16 - legOffset*0.5 + legLen - T*0.04, legW, T*0.055);
+  ctx.fillRect(legW*0.15,  T*0.16 + legOffset*0.5 + legLen - T*0.04, legW, T*0.055);
 
-  // resolve one axis at a time so the player slides along walls
-  if (free(player.x + mx, player.y)) player.x += mx;
-  if (free(player.x, player.y + my)) player.y += my;
-}
+  // torso
+  ctx.fillStyle = P.shirt;
+  ctx.fillRect(-T*0.20, -T*0.10, T*0.40, T*0.30);
 
-/* ---------- 5b. INTERACTION ---------------------------------------- *
- *  Every column already knows every surface it crossed and how far away
- *  each one is, so a tap is a lookup into this frame's cast results —
- *  no extra ray. Scanning near to far means tapping a dumpster hits the
- *  dumpster, and tapping above it hits the building behind.
- * ------------------------------------------------------------------- */
-let focusCell = -1, focusType = 0;      // what the centre of the view is on
-let flashType = 0, flashUntil = 0, msgUntil = 0, nowMs = 0;
+  // arms (subtle opposite swing to legs)
+  const armOffset = -swing * T*0.06;
+  ctx.fillStyle = P.shirt;
+  ctx.fillRect(-T*0.26, -T*0.06 + armOffset, T*0.08, T*0.20);
+  ctx.fillRect(T*0.18,  -T*0.06 - armOffset, T*0.08, T*0.20);
 
-/* The nearest slab in this column whose span contains that row.
-   row === null means "whatever is at eye level", which is what the
-   centre-of-screen focus check wants. */
-function slabAt(col, row) {
-  if (!slabCount || col < 0 || col >= COLS) return -1;
-  const base = col * MAX_SLABS;
-  const at = row === null ? ROWS >> 1 : row;
-  for (let k = 0; k < slabCount[col]; k++) {
-    const i = base + k;
-    const m = matOf(slabType[i]);
-    const tol = (m.prop || m.portal) ? 2 : 0;   // props get a forgiving edge
-    if (at >= slabTop[i] - tol && at <= slabBottom[i] + tol) return i;
-  }
-  return -1;
-}
-
-function targetAt(col, row) {
-  const i = slabAt(col, row);
-  if (i < 0) return null;
-  const m = matOf(slabType[i]);
-  if (!m.prop && !m.portal) return null;
-  if (slabDist[i] > REACH) return null;
-  return { type: slabType[i], cell: slabCell[i] };
-}
-
-function updateFocus() {
-  if (talk || diag) { if (promptEl.textContent) promptEl.textContent = ""; return; }
-  const who = npcInView();
-  const t = who ? null : targetAt(COLS >> 1, null);
-  focusCell = t ? t.cell : -1;
-  focusType = t ? t.type : 0;
-  const label = who ? "▸ " + who.npc.name : (t ? "▸ " + matOf(t.type).name : "");
-  if (promptEl.textContent !== label) promptEl.textContent = label;
-}
-
-function say(text) {
-  msgEl.textContent = text;
-  msgEl.style.opacity = "1";
-  msgUntil = nowMs + 3200;
-}
-
-function interact(t) {
-  const mat = matOf(t.type);
-  if (mat.portal) { travelTo(mat.portal); return; }
-  if (!mat.prop) return;
-  if (mat.prop.action === "workbench") {
-    flashType = t.type; flashUntil = nowMs + 260;
-    const job = jobs.find ? jobs.find(function (j) { return j.state !== "done"; }) : null;
-    if (job && job.device) openDiagnostic(job);
-    else showJobQueue();
-    return;
-  }
-  if (mat.prop.action === "search") {
-    flashType = t.type; flashUntil = nowMs + 260;
-    searchDumpster();
-    return;
-  }
-  flashType  = t.type;                   // tapping off-centre still highlights it
-  flashUntil = nowMs + 260;
-  msgUntil   = nowMs + 3200;
-  msgEl.textContent = mat.prop.text;
-  msgEl.style.opacity = "1";
-}
-
-/* Turn a tap in screen pixels into a world-space event.
-   Because posX + rayDir * perpWallDist lands exactly on the surface,
-   the same multiply gives the world point for ground taps using their
-   own row distance. Returns null only if the tap misses the grid. */
-function worldTapEvent(px, py) {
-  const col = Math.floor((px - offX) / cellW);
-  const row = Math.floor((py - offY) / cellH);
-  if (!slabCount || col < 0 || col >= COLS) return null;
-
-  const rx = slabRayX[col], ry = slabRayY[col];
-  const ev = {
-    kind: "", material: null, height: 0, distance: 0, inReach: false, prop: false, portal: null,
-    world: null, cell: null,
-    screen: { x: Math.round(px), y: Math.round(py), col: col, row: row },
-    ray: { x: rx, y: ry },
-    from: { x: +player.x.toFixed(3), y: +player.y.toFixed(3), angle: +player.a.toFixed(3) }
-  };
-
-  const i = slabAt(col, row);
-  let dist;
-
-  if (i >= 0) {
-    const mat = matOf(slabType[i]);
-    dist = slabDist[i];
-    ev.kind = mat.portal ? "door" : (mat.prop ? "prop" : "wall");
-    ev.material = mat.name;
-    ev.height = mat.h;
-    ev.prop = !!mat.prop;
-    ev.portal = mat.portal ? mat.portal.map : null;
-    ev.side = slabSide[i];
+  // head + hair, oriented by facing
+  ctx.fillStyle = P.skin;
+  ctx.beginPath(); ctx.arc(0, -T*0.20, T*0.16, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = P.hair;
+  if(player.face === "south"){
+    ctx.beginPath(); ctx.arc(0, -T*0.24, T*0.16, Math.PI, 0); ctx.fill();
+  } else if(player.face === "north"){
+    ctx.beginPath(); ctx.arc(0, -T*0.20, T*0.165, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = P.skin;
+    ctx.beginPath(); ctx.arc(0, -T*0.20, T*0.05, 0, Math.PI*2); ctx.fill();
   } else {
-    const p = row - ROWS / 2;             // above or below the horizon
-    if (p <= 0) { ev.kind = "sky"; return ev; }
-    dist = (0.5 * ROWS) / p;
-    ev.kind = "ground";
+    ctx.beginPath(); ctx.arc(0, -T*0.22, T*0.16, Math.PI*0.9, Math.PI*2.1); ctx.fill();
+    ctx.beginPath(); ctx.arc(facingX*T*0.08, -T*0.18, T*0.11, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = P.skin;
+    ctx.beginPath(); ctx.arc(facingX*T*0.15, -T*0.20, T*0.045, 0, Math.PI*2); ctx.fill();
   }
-
-  const wx = player.x + rx * dist, wy = player.y + ry * dist;
-  ev.distance = +dist.toFixed(3);
-  ev.inReach  = dist <= REACH;
-  ev.world    = { x: +wx.toFixed(3), y: +wy.toFixed(3) };
-  ev.cell     = { x: Math.floor(wx), y: Math.floor(wy), value: cellAt(Math.floor(wx), Math.floor(wy)) };
-  if (i >= 0) ev.cell = { x: slabCell[i] % MAP_W, y: Math.floor(slabCell[i] / MAP_W), value: slabType[i] };
-  return ev;
+  ctx.restore();
 }
 
-/* ---- THE HOOK -----------------------------------------------------
-   Every tap and click on the view arrives here. Reassign
-   window.onWorldTap to plug in dialogue, job pickup, scavenging, etc.
-   The default logs the event and runs the placeholder prop response. */
-window.onWorldTap = function (ev) {
-  console.log("[world tap]", ev.kind, ev.material || "",
-    ev.cell ? "cell " + ev.cell.x + "," + ev.cell.y : "",
-    ev.world ? "@ " + ev.world.x + "," + ev.world.y : "",
-    ev.inReach ? "(in reach)" : "(out of reach)", ev);
-
-  if ((ev.prop || ev.portal) && ev.inReach) {
-    interact({ type: ev.cell.value, cell: ev.cell.y * MAP_W + ev.cell.x });
+function drawLight(){
+  const b = BLOCKS[block];
+  if(b.shaftA > 0){
+    const wx = WINDOW.x*T + T*0.12, ww = WINDOW.w*T - T*0.24, reach = T*6.2;
+    const g = ctx.createLinearGradient(0, WINDOW.y*T, 0, WINDOW.y*T+reach);
+    g.addColorStop(0, hexA(b.shaft, b.shaftA));
+    g.addColorStop(1, hexA(b.shaft, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(wx, WINDOW.y*T + T*0.9);
+    ctx.lineTo(wx+ww, WINDOW.y*T + T*0.9);
+    ctx.lineTo(wx+ww + b.skew*reach + T*0.9, WINDOW.y*T + reach);
+    ctx.lineTo(wx + b.skew*reach - T*0.9, WINDOW.y*T + reach);
+    ctx.closePath(); ctx.fill();
   }
-};
-
-function fireWorldTap(px, py) {
-  if (diag) { diagTap(px, py); return null; }
-  if (talk) { advanceDialogue(); return null; }
-
-  const hit = npcAtPixel(px, py);
-  if (hit && hit.dist <= REACH) { startDialogue(hit.npc); return null; }
-
-  const ev = worldTapEvent(px, py);
-  if (ev && typeof window.onWorldTap === "function") window.onWorldTap(ev);
-  return ev;
+  ctx.fillStyle = hexA(b.tint, b.tintA);
+  ctx.fillRect(0,0,cv.width,cv.height);
+  if(b.lamps){
+    pool(10*T, 5.5*T, T*3.0, "#FFCE84", 0.30);
+    pool(9*T,  2.5*T, T*2.4, "#FFC377", 0.18);
+    pool(2.5*T, 9*T,  T*1.9, "#CFE3F2", 0.13);
+  }
+}
+function pool(x,y,r,color,a){
+  const g = ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0, hexA(color,a)); g.addColorStop(1, hexA(color,0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+}
+function hexA(hex,a){
+  const n = parseInt(hex.slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function render(){
+  if(!MAP_KIND) return;   // nothing loaded yet (title/name/birthday/story screens)
+  ctx.fillStyle = P.void; ctx.fillRect(0,0,cv.width,cv.height);
+  if(MAP_KIND === "interior"){
+    drawFloors(); drawWalls(); drawDoors(); drawObjects(); drawPlayer(); drawLight();
+  } else {
+    drawGroundExt(); drawBuildingsExt(); drawDoors(); drawObjectsExt(); drawPlayer(); drawLightExt();
+  }
 }
 
-/* ---------- 5c. STORY STATE, DIALOGUE, JOBS ------------------------ *
- *  Dialogue is data: a set of lines, an optional rotate flag, and an
- *  effect that runs when the last line is dismissed. Each NPC has a
- *  pick() that chooses the right set for the current state, so adding a
- *  character is content, not code.
- * ------------------------------------------------------------------- */
-const flags = {};
-const jobs  = [];
-function jobById(id) { for (let i = 0; i < jobs.length; i++) if (jobs[i].id === id) return jobs[i]; return null; }
+/* ------------------------ INTERACTION -------------------------- */
+const promptEl = document.getElementById("prompt");
+const keyEl = document.getElementById("keyhint");
+const hudEl = document.getElementById("hud");
 
-const DIALOGUE = {
-  ilic_intro: {
-    lines: [
-      "You're your father's son, aren't you? Heard you took over the shop.",
-      "Good. Place was getting dusty. He always said you had hands for this kind of work.",
-      "Matter of fact — my lamp's been dead a week. Cord, switch, something.",
-      "Bring it back to life and I'll make it worth your while.",
-      "Don't know, don't care — that's your department now."
-    ],
-    effect: function () {
-      flags.ilic_intro_done = true;
-      const faults = ["cord", "switch", "bulb"];
-      jobs.push({
-        id: "lamp_repair", title: "Lamp — Mr Ilić", giver: "ilic",
-        device: "lamp", fault: faults[Math.floor(Math.random() * faults.length)],
-        state: "accepted"
-      });
-      say("Job added: Lamp — Mr Ilić");
-    }
-  },
-  ilic_bark_generic: {
-    rotate: true,
-    lines: [
-      "Shop still standing? Good sign.",
-      "Don't let the dust win. Dust always wins eventually, but don't help it.",
-      "You look tired. Working, or just bad at sleeping?"
-    ]
-  },
-  ilic_job_pending: {
-    lines: ["Lamp's not going to fix itself. Not that it was doing much before, either."]
-  },
-  ilic_job_complete: {
-    lines: [
-      "Well. Look at that.",
-      "Not bad. Not bad at all.",
-      "Here — for your trouble.",
-      "Don't get used to compliments. That's the last one for a while."
-    ],
-    effect: function () {
-      const job = jobById("lamp_repair");
-      if (job) job.state = "done";
-      flags.ilic_first_job_done = true;
-    }
-  }
-};
-
-const NPC_DIALOGUE = {
-  ilic: function () {
-    if (!flags.ilic_intro_done) return "ilic_intro";
-    const job = jobById("lamp_repair");
-    if (job && job.state === "ready") return "ilic_job_complete";
-    if (job && job.state === "accepted") return "ilic_job_pending";
-    return "ilic_bark_generic";
-  }
-};
-
-const barkIndex = {};
-let talk = null;              // { npc, set, lines, idx }
-
-function startDialogue(npc) {
-  const pick = NPC_DIALOGUE[npc.id];
-  if (!pick) return;
-  const setId = pick();
-  const set = DIALOGUE[setId];
-  if (!set) return;
-
-  let lines = set.lines;
-  if (set.rotate) {                       // barks cycle instead of replaying
-    const i = (barkIndex[setId] || 0) % lines.length;
-    barkIndex[setId] = i + 1;
-    lines = [lines[i]];
-  }
-  talk = { npc: npc, set: set, setId: setId, lines: lines, idx: 0 };
-  renderTalk();
+let toastActive = false, toastTimer = null;
+function showToast(html, ms=2400){
+  toastActive = true;
+  clearTimeout(toastTimer);
+  keyEl.style.display = "none";
+  promptEl.innerHTML = html;
+  hudEl.classList.add("show");
+  toastTimer = setTimeout(()=>{ toastActive = false; refreshPrompt(); }, ms);
 }
 
-function advanceDialogue() {
-  if (!talk) return;
-  talk.idx++;
-  if (talk.idx < talk.lines.length) { renderTalk(); return; }
-  const set = talk.set;
-  talk = null;
-  talkEl.style.display = "none";
-  if (set.effect) set.effect();
+function facingCell(){
+  const gx = Math.round(player.fx-0.5), gy = Math.round(player.fy-0.5);
+  const d = {north:[0,-1], south:[0,1], west:[-1,0], east:[1,0]}[player.face];
+  return {x: gx+d[0], y: gy+d[1]};
 }
-
-function renderTalk() {
-  talkNameEl.textContent = talk.npc.name;
-  talkLineEl.textContent = talk.lines[talk.idx];
-  talkMoreEl.textContent = talk.idx < talk.lines.length - 1 ? "tap to continue ▸" : "tap to close ▸";
-  talkEl.style.display = "block";
-}
-
-/* ---- jobs on the workbench ---- */
-function showJobQueue() {
-  if (!jobs.length) { say("Workbench. Nothing in the queue yet."); return; }
-  const lines = jobs.map(function (j, i) { return (i + 1) + ". " + j.title + " — " + j.state; });
-  say("JOB QUEUE  ·  " + lines.join("   "));
-}
-
-/* ---------- 5d. PARTS, DEVICES, DIAGNOSTIC ------------------------ *
- *  Simple tier, per the design doc: the device is a wireframe
- *  schematic, you probe test points for a binary pass/fail, and when
- *  you find the dead component you fit a replacement and retest.
- *
- *  Devices are data. Schematic geometry is in a 0..1 box so it scales
- *  to any panel size; adding a second device is a new DEVICES entry.
- * ------------------------------------------------------------------- */
-const PARTS = {
-  lamp_cord:  { name: "Lamp cord" },
-  switch:     { name: "Switch" },
-  cheap_bulb: { name: "Bulb" },
-  wire:       { name: "Wire" },
-  screws:     { name: "Screws" }
-};
-const inventory = {};
-function have(part)  { return (inventory[part] || 0) > 0; }
-function give(part)  { inventory[part] = (inventory[part] || 0) + 1; }
-function take(part)  { if (have(part)) inventory[part]--; }
-
-const DEVICES = {
-  lamp: {
-    name: "TABLE LAMP",
-    /* line segments and shapes, all in a 0..1 box */
-    wires: [
-      [[0.12, 0.64], [0.44, 0.64]],
-      [[0.46, 0.64], [0.64, 0.64]],
-      [[0.64, 0.64], [0.82, 0.64]],
-      [[0.82, 0.64], [0.82, 0.50]]
-    ],
-    plug: [0.12, 0.64],
-    sw:   [0.45, 0.64],
-    bulb: [0.82, 0.38, 0.085],
-    points: [
-      { id: "plug",   label: "PLUG",   x: 0.12, y: 0.64, part: null },
-      { id: "cord",   label: "CORD",   x: 0.29, y: 0.64, part: "lamp_cord" },
-      { id: "switch", label: "SWITCH", x: 0.45, y: 0.64, part: "switch" },
-      { id: "socket", label: "SOCKET", x: 0.70, y: 0.64, part: null },
-      { id: "bulb",   label: "BULB",   x: 0.82, y: 0.38, part: "cheap_bulb" }
-    ]
-  }
-};
-
-/* Scavenge pools. Weights are relative; "nothing" is a real outcome. */
-const SCAVENGE = {
-  alley_dumpster: [
-    { part: "lamp_cord",  weight: 22 },
-    { part: "switch",     weight: 22 },
-    { part: "cheap_bulb", weight: 22 },
-    { part: "wire",       weight: 12 },
-    { part: "screws",     weight: 12 },
-    { part: null,         weight: 20 }
-  ]
-};
-
-function rollScavenge(poolId) {
-  const pool = SCAVENGE[poolId];
-  let total = 0;
-  for (let i = 0; i < pool.length; i++) total += pool[i].weight;
-  let r = Math.random() * total;
-  for (let i = 0; i < pool.length; i++) {
-    r -= pool[i].weight;
-    if (r <= 0) return pool[i].part;
-  }
+function targetHere(){
+  if(!OBJECTS || !DOORS) return null;
+  const f = facingCell();
+  for(const o of OBJECTS)
+    if(o.prompt && f.x>=o.x && f.x<o.x+o.w && f.y>=o.y && f.y<o.y+o.h) return o;
+  for(const d of DOORS)
+    if(d.x===f.x && d.y===f.y && d.prompt) return d;
   return null;
 }
-
-function searchDumpster() {
-  const part = rollScavenge("alley_dumpster");
-  if (!part) { say("Nothing but junk today."); return; }
-  give(part);
-  say("Found: " + PARTS[part].name);
+function refreshPrompt(){
+  if(toastActive) return;
+  const t = targetHere();
+  if(t){
+    keyEl.style.display = "";
+    promptEl.innerHTML = `<b>${t.name}</b> — ${t.prompt}`;
+    hudEl.classList.add("show");
+  } else {
+    keyEl.style.display = "none";
+    promptEl.textContent = "";
+    hudEl.classList.remove("show");
+  }
 }
-
-/* ---- the diagnostic itself ---- */
-let diag = null;   // { job, device, fault, tested, stage }
-
-/* Probe results live on the job, so walking away and coming back
-   resumes the diagnosis instead of starting it over. */
-function openDiagnostic(job) {
-  const device = DEVICES[job.device];
-  if (!device) return;
-  if (!job.tested) job.tested = {};
-  let stage = "probe";
-  if (job.state === "ready") stage = "fixed";
-  else if (job.tested[job.fault] === "fail") stage = "diagnosed";
-  diag = { job: job, device: device, fault: job.fault, tested: job.tested, stage: stage };
-  if (stage === "fixed") markAllPass();
-}
-
-function markAllPass() {
-  const pts = diag.device.points;
-  for (let i = 0; i < pts.length; i++) diag.tested[pts[i].id] = "pass";
-}
-
-function closeDiagnostic() { diag = null; }
-
-/* A probe, or — once the fault is known — fitting the new part. */
-function diagPoint(pt) {
-  if (!diag) return;
-
-  if (diag.stage === "probe") {
-    const failed = pt.id === diag.fault;
-    diag.tested[pt.id] = failed ? "fail" : "pass";
-    if (failed) diag.stage = "diagnosed";
+function use(){
+  const t = targetHere();
+  if(!t) return;
+  if(t.to !== undefined){          // it's a door — real transition or an honest "not built yet"
+    if(t.to) loadMap(t.to.map, t.to);
+    else showToast(t.lockedMsg || `<b>${t.name}</b> — not built yet.`, 2600);
     return;
   }
-
-  if (diag.stage === "diagnosed" && pt.id === diag.fault) {
-    if (!have(pt.part)) return;   // the panel status line says what is needed
-    take(pt.part);
-    markAllPass();
-    diag.stage = "fixed";
-    diag.job.state = "ready";
-    say(diag.device.name + " works. Take it back to Mr Ilić.");
+  switch(t.id){
+    case "desk":        openChooser(); break;
+    case "sink":        washUp(); break;
+    case "bed":         sleep(); break;
+    case "couch":       showToast("You sit for a minute."); break;
+    case "tv":          showToast("Nothing good on."); break;
+    case "toilet":      break;
+    case "lamp":        showToast("Just a streetlamp."); break;
+    case "dumpster":    searchDumpster(); break;
+    case "shop_bench":  openShopBench(); break;
+    case "phone":        openComputer(); break;
+    case "rack":         showToast("Batteries, bulbs, cheap tools. Display stock — not sellable yet."); break;
+    case "shelf":         showToast("Parts storage. Empty for now."); break;
+    case "npc":          if(t.npcId) openDialogue(t.npcId); break;
+    case "checkout":     if(t.shopId) openShop(t.shopId); break;
+    case "junk":          showToast("A pile of someone else's old projects. Nothing to dig through yet."); break;
+    case "coveredbench":  showToast("Still tarped over. Whatever's under here can wait."); break;
+    case "trunk":         showToast("Locked. The latch won't budge."); break;
+    default:          showToast(`<b>${t.name}</b> — ${t.prompt}`);
   }
 }
-
-/* ---------- 6. RAYCAST (DDA) -------------------------------------- *
- *  A ray no longer stops at the first wall. Because buildings differ in
- *  height, a low dumpster leaves the block behind it visible above, so
- *  each column keeps every surface it crossed and the drawing pass
- *  paints them far to near. Casting stops once a slab reaches the top
- *  of the screen — nothing behind that can show.
- * ------------------------------------------------------------------ */
-const MAX_SLABS = 6;
-
-function castColumns(dirX, dirY, planeX, planeY) {
-  const horizon = ROWS / 2;
-
-  for (let col = 0; col < COLS; col++) {
-    const cameraX = 2 * col / COLS - 1;          // -1 .. +1 across the screen
-    const rayX = dirX + planeX * cameraX;
-    const rayY = dirY + planeY * cameraX;
-
-    let mapX = Math.floor(player.x);
-    let mapY = Math.floor(player.y);
-
-    const deltaX = rayX === 0 ? Infinity : Math.abs(1 / rayX);
-    const deltaY = rayY === 0 ? Infinity : Math.abs(1 / rayY);
-
-    let stepX, stepY, sideDistX, sideDistY;
-    if (rayX < 0) { stepX = -1; sideDistX = (player.x - mapX) * deltaX; }
-    else          { stepX =  1; sideDistX = (mapX + 1 - player.x) * deltaX; }
-    if (rayY < 0) { stepY = -1; sideDistY = (player.y - mapY) * deltaY; }
-    else          { stepY =  1; sideDistY = (mapY + 1 - player.y) * deltaY; }
-
-    let side = 0, n = 0, minTop = ROWS + 1;
-    const base = col * MAX_SLABS;
-
-    for (let guard = 0; guard < 160; guard++) {
-      if (Math.min(sideDistX, sideDistY) > VIEW_DIST) break;   // past the fog
-      if (sideDistX < sideDistY) { sideDistX += deltaX; mapX += stepX; side = 0; }
-      else                       { sideDistY += deltaY; mapY += stepY; side = 1; }
-
-      const cell = cellAt(mapX, mapY);
-      if (cell === 0) continue;
-
-      // perpendicular distance -> no fisheye distortion
-      let dist = side === 0
-        ? (mapX - player.x + (1 - stepX) / 2) / rayX
-        : (mapY - player.y + (1 - stepY) / 2) / rayY;
-      if (!(dist > 0.0001)) dist = 0.0001;
-
-      // eye sits at 0.5, so a wall of height h spans these rows
-      const proj = ROWS / dist;
-      const top    = Math.round(horizon - (matOf(cell).h - 0.5) * proj);
-      const bottom = Math.round(horizon + 0.5 * proj);
-
-      // every surface shares the ground line, so a farther one is only
-      // visible where it pokes above everything nearer — skip it otherwise
-      if (top >= minTop) { if (minTop <= 0) break; continue; }
-      minTop = top;
-
-      const i = base + n;
-      slabDist[i]   = dist;
-      slabTop[i]    = top;
-      slabBottom[i] = bottom;
-      slabCell[i]   = mapY * MAP_W + mapX;
-      slabSide[i]   = side;
-      slabType[i]   = cell;
-      n++;
-
-      if (top <= 0 || n >= MAX_SLABS) break;   // this slab hides everything behind
-    }
-
-    slabCount[col] = n;
-    slabRayX[col]  = rayX;
-    slabRayY[col]  = rayY;
-    // nearest surface, used by the ground grid and by taps
-    colTop[col]    = n ? slabTop[base] : ROWS + 1;
-    colBottom[col] = n ? slabBottom[base] : -1;
-    colDepth[col]  = n ? slabDist[base] : Infinity;
+function washUp(){
+  setStamina(stamina + 5);
+  showToast("You washed up. <span style=\"color:var(--hot)\">+5 stamina</span>");
+}
+function sleep(){
+  setStamina(100);
+  dumpsterSearchedToday = false;
+  document.querySelectorAll(".clock button").forEach(o=>
+    o.setAttribute("aria-pressed", o.dataset.block === "morning" ? "true" : "false"));
+  block = "morning";
+  showToast("<b>You sleep.</b> Stamina fully restored. (day-end summary comes later)", 2600);
+}
+let dumpsterSearchedToday = false;
+function searchDumpster(){
+  if(dumpsterSearchedToday){
+    showToast("Already picked through today. Come back tomorrow.");
+    return;
   }
-}
-
-function shadeFor(dist, side) {
-  const t = 1 - Math.min(dist / VIEW_DIST, 1);
-  let lvl = Math.round((LEVELS - 1) * Math.pow(t, 0.85));
-  if (side === 1) lvl -= 2;                 // N/S faces read darker
-  return Math.max(0, Math.min(LEVELS - 1, lvl));
-}
-
-/* ---------- 6b. PEOPLE (BILLBOARD SPRITES) ------------------------ *
- *  Characters are flat sprites that always face the camera, drawn with
- *  the standard inverse-camera transform and depth-tested per column
- *  against the nearest wall, so they are hidden correctly when they
- *  stand behind something.
- *
- *  The art is a mask: '#' takes the ramp glyph for its shade, '.' is
- *  transparent. Keeping it a mask rather than fixed characters means a
- *  sprite dims and thins with distance exactly like a wall does.
- * ------------------------------------------------------------------ */
-const SPRITE_ART = {
-  man: [
-    "..###..",
-    ".#####.",
-    ".#####.",
-    "..###..",
-    ".#####.",
-    "#######",
-    "#######",
-    "#.###.#",
-    "..###..",
-    "..#.#..",
-    "..#.#..",
-    "..#.#..",
-    ".##.##."
-  ]
-};
-
-/* Eye height is 0.5 map units, so a person stands about 0.6 tall. */
-const NPCS = [
-  { id: "ilic", name: "MR ILIĆ", map: "district1_street",
-    x: 22.5, y: 9.7, height: 0.62, art: "man", bank: 6 }
-];
-
-function npcsHere() {
-  const out = [];
-  for (let i = 0; i < NPCS.length; i++) if (NPCS[i].map === worldId) out.push(NPCS[i]);
-  return out;
-}
-
-/* Screen box for a sprite, or null when it is behind the camera or off
-   the sides. Also records the box so a tap can hit-test against it. */
-function spriteBox(npc, dirX, dirY, planeX, planeY) {
-  const relX = npc.x - player.x, relY = npc.y - player.y;
-
-  // inverse of the [plane, dir] matrix
-  const invDet = 1 / (planeX * dirY - dirX * planeY);
-  const tx = invDet * (dirY * relX - dirX * relY);        // sideways
-  const ty = invDet * (-planeY * relX + planeX * relY);   // depth
-  if (ty <= 0.15) return null;
-
-  const art = SPRITE_ART[npc.art];
-  const artH = art.length, artW = art[0].length;
-
-  const proj = ROWS / ty;
-  const bottom = ROWS / 2 + 0.5 * proj;                   // stands on the ground
-  const hRows  = npc.height * proj;
-  const top    = bottom - hRows;
-  // keep the drawn proportions square-ish on screen, not in cells
-  const wCols  = hRows * (artW / artH) * (cellH / cellW);
-  const cx     = (COLS / 2) * (1 + tx / ty);
-
-  return {
-    npc: npc, dist: ty, art: art,
-    x0: Math.round(cx - wCols / 2), x1: Math.round(cx + wCols / 2),
-    y0: Math.round(top), y1: Math.round(bottom)
-  };
-}
-
-let spriteBoxes = [];
-
-function computeSprites(dirX, dirY, planeX, planeY) {
-  spriteBoxes = [];
-  const list = npcsHere();
-  for (let i = 0; i < list.length; i++) {
-    const b = spriteBox(list[i], dirX, dirY, planeX, planeY);
-    if (b) spriteBoxes.push(b);
-  }
-  spriteBoxes.sort(function (a, b) { return b.dist - a.dist; });   // far to near
-}
-
-function drawNPCs() {
-  for (let i = 0; i < spriteBoxes.length; i++) {
-    const b = spriteBoxes[i];
-    const bank = b.npc.bank * BANK;
-    const lvl  = shadeFor(b.dist, 0);
-    const glyph = matOf(1).ramp.charAt(lvl);
-    const artH = b.art.length, artW = b.art[0].length;
-    const boxW = Math.max(1, b.x1 - b.x0), boxH = Math.max(1, b.y1 - b.y0);
-
-    for (let col = Math.max(0, b.x0); col < Math.min(COLS, b.x1); col++) {
-      if (b.dist >= colDepth[col]) continue;               // behind a wall
-      const sx = Math.min(artW - 1, Math.floor((col - b.x0) / boxW * artW));
-      for (let row = Math.max(0, b.y0); row < Math.min(ROWS, b.y1); row++) {
-        const sy = Math.min(artH - 1, Math.floor((row - b.y0) / boxH * artH));
-        if (b.art[sy].charAt(sx) === "#") put(col, row, glyph, bank + lvl);
-      }
-    }
-  }
-}
-
-/* Which person is under this pixel, if any? Uses the boxes from the
-   frame just drawn, nearest first. */
-function npcAtPixel(px, py) {
-  const col = Math.floor((px - offX) / cellW);
-  const row = Math.floor((py - offY) / cellH);
-  let best = null;
-  for (let i = 0; i < spriteBoxes.length; i++) {
-    const b = spriteBoxes[i];
-    if (col < b.x0 - 1 || col > b.x1 + 1 || row < b.y0 - 1 || row > b.y1 + 1) continue;
-    if (b.dist >= colDepth[Math.max(0, Math.min(COLS - 1, col))]) continue;
-    if (!best || b.dist < best.dist) best = b;
-  }
-  return best;
-}
-
-/* The person you are looking at, for the focus prompt. */
-function npcInView() {
-  let best = null;
-  for (let i = 0; i < spriteBoxes.length; i++) {
-    const b = spriteBoxes[i];
-    const mid = COLS >> 1;
-    if (mid < b.x0 - 1 || mid > b.x1 + 1) continue;
-    if (b.dist > REACH) continue;
-    if (!best || b.dist < best.dist) best = b;
-  }
-  return best;
-}
-
-/* ---------- 7. DRAW WALLS ----------------------------------------- */
-function drawWalls() {
-  for (let col = 0; col < COLS; col++) {
-    const n = slabCount[col];
-    const base = col * MAX_SLABS;
-    const pn = col > 0 ? slabCount[col - 1] : 0;
-    const pbase = (col - 1) * MAX_SLABS;
-
-    for (let k = n - 1; k >= 0; k--) {          // painter's order: far to near
-      const i = base + k;
-      const type = slabType[i];
-      const mat  = matOf(type);
-      const bank = mat.bank * BANK;
-      let lvl = shadeFor(slabDist[i], slabSide[i]);
-
-      // a focused (or just-tapped) prop lifts out of the background —
-      // by type, so every cell of a multi-cell prop lights together
-      if ((mat.prop || mat.portal) && slabDist[i] <= REACH) {
-        if (type === flashType && flashUntil > nowMs) lvl = Math.min(LEVELS - 1, lvl + 4);
-        else if (type === focusType)                  lvl = Math.min(LEVELS - 1, lvl + 2);
-      }
-
-      const top = slabTop[i], bottom = slabBottom[i];
-      const y0 = Math.max(0, top), y1 = Math.min(ROWS - 1, bottom);
-      const shade  = bank + lvl;
-      const bright = bank + Math.min(LEVELS - 1, lvl + 3);
-      const glyph  = mat.ramp.charAt(lvl);
-
-      if (showFill) {
-        for (let row = y0; row <= y1; row++) put(col, row, glyph, shade);
-      }
-
-      // wireframe: vertical edge wherever this slab lands on a different
-      // wall cell / face than the matching slab of the previous column
-      const edge = col === 0 || k >= pn ||
-                   slabCell[i] !== slabCell[pbase + k] ||
-                   slabSide[i] !== slabSide[pbase + k];
-
-      if (edge) {
-        for (let row = y0; row <= y1; row++) put(col, row, "│", bright);
-      }
-      if (top >= 0 && top < ROWS)       put(col, top,    edge ? "┼" : "─", bright);
-      if (bottom >= 0 && bottom < ROWS) put(col, bottom, edge ? "┼" : "─", bright);
-    }
-  }
-}
-
-/* ---------- 8. GROUND GRID ---------------------------------------- */
-/* Perspective-correct ground grid. A cell is marked when the sampled
-   floor point crosses an integer boundary from its neighbour (left, or
-   the row above) — that catches grid lines that fall between two sample
-   points instead of dropping them. The sky above stays empty. */
-function drawGrid(dirX, dirY, planeX, planeY) {
-  const leftX = dirX - planeX, leftY = dirY - planeY;
-  const rightX = dirX + planeX, rightY = dirY + planeY;
-  const horizon = ROWS / 2;
-  let prevRowValid = false;
-
-  for (let row = Math.floor(horizon) + 1; row < ROWS; row++) {
-    const rowDist = (0.5 * ROWS) / (row - horizon);
-    if (rowDist > GRID_DIST) { prevRowValid = false; continue; }
-
-    const stepX = rowDist * (rightX - leftX) / COLS;
-    const stepY = rowDist * (rightY - leftY) / COLS;
-    let fx = player.x + rowDist * leftX;
-    let fy = player.y + rowDist * leftY;
-
-    const t = 1 - rowDist / GRID_DIST;
-    const shade = Math.max(0, Math.round(3 * t));   // deliberately faint
-
-    let leftCX = Math.floor(fx / GRID_STEP), leftCY = Math.floor(fy / GRID_STEP);
-
-    for (let col = 0; col < COLS; col++) {
-      const cx = Math.floor(fx / GRID_STEP), cy = Math.floor(fy / GRID_STEP);
-      const crossX = (col > 0 && cx !== leftCX) || (prevRowValid && cx !== prevCX[col]);
-      const crossY = (col > 0 && cy !== leftCY) || (prevRowValid && cy !== prevCY[col]);
-
-      if (crossX || crossY) {
-        const ch = (crossX && crossY) ? "+" : (crossX ? "│" : "─");
-        if (row > colBottom[col]) put(col, row, ch, shade);
-      }
-
-      prevCX[col] = cx; prevCY[col] = cy;
-      leftCX = cx;      leftCY = cy;
-      fx += stepX;      fy += stepY;
-    }
-    prevRowValid = true;
-  }
-}
-
-/* ---------- 9. FRAMEBUFFER -> CANVAS ------------------------------ */
-function blit() {
-  ctx.fillStyle = BG;
-  ctx.fillRect(0, 0, W, H);
-  ctx.font = fontPx + "px " + FONT_STACK;
-  ctx.textBaseline = "top";
-
-  for (let row = 0; row < ROWS; row++) {
-    const base = row * COLS;
-    const y = offY + row * cellH;
-    let runStart = 0, runShade = -1, buf = "";
-
-    for (let col = 0; col <= COLS; col++) {
-      const ch = col < COLS ? fbChar[base + col] : " ";
-      const sh = col < COLS ? fbShade[base + col] : -1;
-
-      if (ch === " " || sh !== runShade) {
-        if (buf) {                                   // flush the current run
-          ctx.fillStyle = PALETTE[runShade];
-          ctx.fillText(buf, offX + runStart * cellW, y);
-          buf = "";
-        }
-        if (ch !== " ") { runStart = col; runShade = sh; buf = ch; }
-        else runShade = -1;
-      } else {
-        buf += ch;
-      }
-    }
-  }
-}
-
-/* ---------- 10. JOYSTICK OVERLAY ---------------------------------- */
-function drawJoystick() {
-  if (talk || diag) return;
-  const r = joy.radius;
-  const bx = joy.homeX, by = joy.homeY;
-
-  let kx = joy.curX - bx, ky = joy.curY - by;
-  const mag = Math.hypot(kx, ky);
-  if (mag > r) { kx = kx / mag * r; ky = ky / mag * r; }
-
-  ctx.save();
-  ctx.lineWidth = Math.max(1, r * 0.022);
-
-  // outer ring
-  ctx.strokeStyle = joy.active ? "rgba(90,225,240,0.40)" : "rgba(90,225,240,0.16)";
-  ctx.beginPath();
-  ctx.arc(bx, by, r, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // dead-zone ring
-  ctx.strokeStyle = joy.active ? "rgba(90,225,240,0.20)" : "rgba(90,225,240,0.09)";
-  ctx.beginPath();
-  ctx.arc(bx, by, r * JOY_DEAD, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // axis ticks, so the walk/turn axes are readable at a glance
-  ctx.beginPath();
-  for (let i = 0; i < 4; i++) {
-    const a = i * Math.PI / 2;
-    ctx.moveTo(bx + Math.cos(a) * r * 0.86, by + Math.sin(a) * r * 0.86);
-    ctx.lineTo(bx + Math.cos(a) * r * 0.98, by + Math.sin(a) * r * 0.98);
-  }
-  ctx.stroke();
-
-  // knob
-  ctx.fillStyle   = joy.active ? "rgba(120,255,230,0.20)" : "rgba(120,255,230,0.07)";
-  ctx.strokeStyle = joy.active ? "rgba(150,255,235,0.85)" : "rgba(150,255,235,0.28)";
-  ctx.beginPath();
-  ctx.arc(bx + kx, by + ky, r * 0.34, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-}
-
-/* ---------- 10b. DIAGNOSTIC SCREEN -------------------------------- *
- *  Drawn as vectors rather than characters: it is a readout, not part
- *  of the world, and the wireframe reads cleanly at any size. Hit
- *  targets are generous — this has to work under a thumb.
- * ------------------------------------------------------------------ */
-let diagRect = null, diagHits = [], diagCloseRect = null;
-
-function diagLayout() {
-  const w = Math.min(W * 0.92, 720);
-  const h = Math.min(H * 0.66, 430);
-  return { x: (W - w) / 2, y: (H - h) / 2, w: w, h: h };
-}
-
-function drawDiagnostic() {
-  if (!diag) { diagRect = null; diagHits = []; return; }
-  const r = diagLayout();
-  diagRect = r;
-  diagHits = [];
-
-  ctx.save();
-  ctx.fillStyle = "rgba(2,6,10,0.86)";           // dim the world behind
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = "rgba(4,12,18,0.96)";
-  ctx.fillRect(r.x, r.y, r.w, r.h);
-  ctx.strokeStyle = "rgba(120,220,240,0.45)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
-
-  const pad = Math.round(r.w * 0.045);
-  const fs1 = Math.max(11, Math.round(r.w / 46));
-  ctx.font = fs1 + "px " + FONT_STACK;
-  ctx.textBaseline = "top";
-
-  ctx.fillStyle = "#8fe8f5";
-  ctx.fillText("DIAGNOSTIC — " + diag.device.name, r.x + pad, r.y + pad);
-
-  // close button
-  const cs = fs1 * 1.9;
-  diagCloseRect = { x: r.x + r.w - pad - cs, y: r.y + pad - 4, w: cs, h: cs };
-  ctx.strokeStyle = "rgba(150,220,235,0.5)";
-  ctx.strokeRect(diagCloseRect.x + 0.5, diagCloseRect.y + 0.5, cs, cs);
-  ctx.fillStyle = "#9fe9f5";
-  ctx.fillText("×", diagCloseRect.x + cs * 0.34, diagCloseRect.y + cs * 0.12);
-
-  // schematic area
-  const sx = r.x + pad, sy = r.y + pad * 2.6;
-  const sw = r.w - pad * 2, sh = r.h - pad * 4.8;
-  const px = function (u) { return sx + u * sw; };
-  const py = function (v) { return sy + v * sh; };
-
-  const dev = diag.device;
-  ctx.strokeStyle = "rgba(110,200,225,0.75)";
-  ctx.lineWidth = Math.max(1.2, r.w / 420);
-
-  ctx.beginPath();
-  for (let i = 0; i < dev.wires.length; i++) {
-    const seg = dev.wires[i];
-    ctx.moveTo(px(seg[0][0]), py(seg[0][1]));
-    ctx.lineTo(px(seg[1][0]), py(seg[1][1]));
-  }
-  ctx.stroke();
-
-  // plug body
-  const pw = sw * 0.05, ph = sh * 0.09;
-  ctx.strokeRect(px(dev.plug[0]) - pw, py(dev.plug[1]) - ph / 2, pw, ph);
-  // switch body
-  const bw = sw * 0.035;
-  ctx.strokeRect(px(dev.sw[0]) - bw / 2, py(dev.sw[1]) - bw / 2, bw, bw);
-  // bulb
-  ctx.beginPath();
-  ctx.arc(px(dev.bulb[0]), py(dev.bulb[1]), sw * dev.bulb[2] * 0.55, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // test points
-  const rad = Math.max(9, sw * 0.026);
-  for (let i = 0; i < dev.points.length; i++) {
-    const pt = dev.points[i];
-    const cx = px(pt.x), cy = py(pt.y);
-    const state = diag.tested[pt.id];
-    const isFault = diag.stage !== "probe" && pt.id === diag.fault;
-
-    let col = "rgba(140,215,235,0.85)";
-    if (state === "pass") col = "rgba(120,240,170,0.95)";
-    if (state === "fail") col = "rgba(255,110,110,0.95)";
-
-    ctx.strokeStyle = col;
-    ctx.lineWidth = isFault && diag.stage === "diagnosed" ? 3 : 1.6;
-    ctx.beginPath();
-    ctx.arc(cx, cy, rad, 0, Math.PI * 2);
-    ctx.stroke();
-
-    if (state) {
-      ctx.fillStyle = col;
-      ctx.font = Math.round(rad * 1.5) + "px " + FONT_STACK;
-      ctx.fillText(state === "pass" ? "✓" : "✕", cx - rad * 0.5, cy - rad * 0.78);
-    }
-
-    ctx.fillStyle = state ? col : "rgba(120,190,210,0.7)";
-    ctx.font = Math.max(9, Math.round(fs1 * 0.82)) + "px " + FONT_STACK;
-    ctx.fillText(pt.label, cx - rad - 2, cy + rad + 4);
-
-    diagHits.push({ pt: pt, x: cx, y: cy, r: rad * 2.2 });
-  }
-
-  // status line
-  let status, colour = "#9fe9f5";
-  if (diag.stage === "probe") {
-    status = "Tap a test point to probe it.";
-  } else if (diag.stage === "diagnosed") {
-    const pt = dev.points.filter(function (p) { return p.id === diag.fault; })[0];
-    const part = PARTS[pt.part];
-    status = have(pt.part)
-      ? pt.label + " is dead. Tap it again to fit the " + part.name.toLowerCase() + "."
-      : pt.label + " is dead. You need a " + part.name.toLowerCase() + " — try the alley dumpster.";
-    colour = have(pt.part) ? "#ffd06a" : "#ff8f8f";
+  dumpsterSearchedToday = true;
+  const common = PARTS_CATALOG.filter(p => p.rarity === "Common");
+  if(Math.random() < 0.8){
+    const p = common[Math.floor(Math.random() * common.length)];
+    inventory[p.id] = haveQty(p.id) + 1;
+    showToast(`<b>Found something.</b> ${p.name} added to your kit.`);
   } else {
-    status = "All points pass. Take it back to Mr Ilić.";
-    colour = "#8fe6b0";
+    showToast("Nothing but junk today.");
   }
-  ctx.fillStyle = colour;
-  ctx.font = fs1 + "px " + FONT_STACK;
-  ctx.fillText(status, r.x + pad, r.y + r.h - pad - fs1 * 1.2);
-
-  ctx.restore();
 }
 
-/* Route a tap inside the panel. Returns true if it consumed the tap. */
-function diagTap(px2, py2) {
-  if (!diag) return false;
-  if (diagCloseRect &&
-      px2 >= diagCloseRect.x && px2 <= diagCloseRect.x + diagCloseRect.w &&
-      py2 >= diagCloseRect.y && py2 <= diagCloseRect.y + diagCloseRect.h) {
-    closeDiagnostic();
-    return true;
-  }
-  for (let i = 0; i < diagHits.length; i++) {
-    const h = diagHits[i];
-    if (Math.hypot(px2 - h.x, py2 - h.y) <= h.r) { diagPoint(h.pt); return true; }
-  }
-  if (diagRect && (px2 < diagRect.x || px2 > diagRect.x + diagRect.w ||
-                   py2 < diagRect.y || py2 > diagRect.y + diagRect.h)) {
-    closeDiagnostic();                    // tapping outside backs out
-  }
-  return true;
+/* ------------------------ HOBBY CORNER PANELS -------------------- */
+const deskChooser = document.getElementById("deskChooser");
+const computerPanel = document.getElementById("computerPanel");
+const benchPanel = document.getElementById("benchPanel");
+const partsListEl = document.getElementById("partsList");
+const recipeListEl = document.getElementById("recipeList");
+const kitNoteEl = document.getElementById("kitNote");
+
+function openChooser(){ deskChooser.classList.add("open"); }
+function closeChooser(){ deskChooser.classList.remove("open"); }
+
+function openComputer(){ closeChooser(); renderPartsList(); computerPanel.classList.add("open"); }
+function closeComputer(){ computerPanel.classList.remove("open"); refreshPrompt(); }
+
+function openBench(){ closeChooser(); renderRecipeList(); benchPanel.classList.add("open"); }
+function closeBench(){ benchPanel.classList.remove("open"); refreshPrompt(); }
+
+document.getElementById("openComputer").addEventListener("click", openComputer);
+document.getElementById("openBench").addEventListener("click", openBench);
+document.getElementById("closeChooser").addEventListener("click", closeChooser);
+document.getElementById("closeComputer").addEventListener("click", closeComputer);
+document.getElementById("closeBench").addEventListener("click", closeBench);
+deskChooser.addEventListener("click", e=>{ if(e.target === deskChooser) closeChooser(); });
+computerPanel.addEventListener("click", e=>{ if(e.target === computerPanel) closeComputer(); });
+benchPanel.addEventListener("click", e=>{ if(e.target === benchPanel) closeBench(); });
+
+function renderPartsList(){
+  partsListEl.innerHTML = PARTS_CATALOG.map(p => `
+    <div class="part-row">
+      <div>
+        <div class="pname">${p.name}</div>
+        <div class="pmeta">${p.rarity} · ₴${p.cost} · <span class="have-tag">have ${haveQty(p.id)}</span></div>
+      </div>
+      <button class="pbuy" data-buy="${p.id}" ${canAfford(p.cost) ? "" : "disabled"}>Buy</button>
+    </div>
+  `).join("");
 }
+partsListEl.addEventListener("click", e=>{
+  const id = e.target.dataset.buy;
+  if(!id) return;
+  const p = PARTS_CATALOG.find(x=>x.id===id);
+  if(!p || !canAfford(p.cost)) return;
+  setMoney(money - p.cost);
+  inventory[id] = haveQty(id) + 1;
+  renderPartsList();
+});
 
-/* ---------- 11. MINIMAP ------------------------------------------- */
-function drawMinimap() {
-  const s = mapScale;
-  const px = W - 14 - MAP_W * s, py = 14;
+function renderRecipeList(){
+  recipeListEl.innerHTML = RECIPES.map(r => {
+    const chips = r.inputs.map(i => {
+      const ok = haveQty(i.id) >= i.qty;
+      return `<span class="req-chip ${ok ? "ok":"missing"}">${i.name} ×${i.qty} <span class="have-tag">(have ${haveQty(i.id)})</span></span>`;
+    }).join("");
+    const staminaOk = stamina >= r.staminaCost;
+    return `
+      <div class="recipe-card">
+        <h3>${r.name}</h3>
+        <div class="req-list">${chips}</div>
+        <button class="craft-btn" data-craft="${r.id}" ${canCraft(r) ? "" : "disabled"}>
+          <span class="fill"></span>
+          <span>${staminaOk ? "Build" : "Too tired — needs "+r.staminaCost+" stamina"}</span>
+        </button>
+      </div>
+    `;
+  }).join("");
+  const held = Object.entries(inventory).filter(([,n])=>n>0)
+    .map(([id,n])=>`${id.replace(/_/g," ")} ×${n}`).join(", ");
+  kitNoteEl.textContent = `Kit: ${held || "empty"}.`;
+}
+recipeListEl.addEventListener("click", e=>{
+  const btn = e.target.closest(".craft-btn");
+  if(!btn || btn.disabled) return;
+  const r = RECIPES.find(x=>x.id===btn.dataset.craft);
+  if(!r || !canCraft(r)) return;
+  btn.disabled = true;
+  btn.querySelector(".fill").style.width = "100%";
+  setTimeout(()=>{
+    r.inputs.forEach(i => inventory[i.id] -= i.qty);
+    inventory[r.output.id] = haveQty(r.output.id) + 1;
+    setStamina(stamina - r.staminaCost);
+    renderRecipeList();
+    showToast(`<b>${r.output.name} built.</b> Added to your kit.`);
+  }, 900);
+});
 
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = "rgba(3,10,16,0.75)";
-  ctx.fillRect(px - 3, py - 3, MAP_W * s + 6, MAP_H * s + 6);
-  ctx.strokeStyle = "rgba(60,180,200,0.25)";
-  ctx.strokeRect(px - 3.5, py - 3.5, MAP_W * s + 7, MAP_H * s + 7);
+/* ------------------------ DIALOGUE (NPCs) ------------------------ */
+const dialoguePanel   = document.getElementById("dialoguePanel");
+const dialogueNameEl  = document.getElementById("dialogueName");
+const dialogueTextEl  = document.getElementById("dialogueText");
+const dialogueNextBtn = document.getElementById("dialogueNext");
+const portraitImg     = document.getElementById("portraitImg");
+const portraitFallback= document.getElementById("portraitFallback");
+let activeNpc = null, dialogueIdx = 0;
 
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      const c = world.grid[y][x];
-      if (!c) continue;
-      const bnk = BANKS[matOf(c).bank];
-      ctx.fillStyle = "hsla(" + bnk[0] + "," + bnk[1] + "%,55%," + (matOf(c).prop ? 0.9 : 0.5) + ")";
-      ctx.fillRect(px + x * s, py + y * s, s - 1, s - 1);
+function openDialogue(npcId){
+  const npc = NPCS[npcId];
+  if(!npc) return;
+  activeNpc = npc; dialogueIdx = 0;
+  dialogueNameEl.textContent = npc.name;
+  setPortrait(npc);
+  renderDialogueLine();
+  dialoguePanel.classList.add("open");
+}
+function setPortrait(npc){
+  portraitFallback.textContent = (npc.name || "?").trim().charAt(0).toUpperCase();
+  if(npc.portrait){
+    portraitImg.onload  = ()=>{ portraitImg.style.display = "block"; portraitFallback.style.display = "none"; };
+    portraitImg.onerror = ()=>{ portraitImg.style.display = "none"; portraitFallback.style.display = "flex"; };
+    portraitImg.src = npc.portrait;   // 404s gracefully into the fallback monogram
+  } else {
+    portraitImg.style.display = "none";
+    portraitFallback.style.display = "flex";
+  }
+}
+function renderDialogueLine(){
+  dialogueTextEl.textContent = activeNpc.lines[dialogueIdx];
+  dialogueNextBtn.textContent = dialogueIdx < activeNpc.lines.length - 1 ? "Next" : "Done";
+}
+function advanceDialogue(){
+  if(!activeNpc) return;
+  if(dialogueIdx < activeNpc.lines.length - 1){ dialogueIdx++; renderDialogueLine(); }
+  else closeDialogue();
+}
+function closeDialogue(){
+  dialoguePanel.classList.remove("open");
+  activeNpc = null;
+  refreshPrompt();
+}
+dialogueNextBtn.addEventListener("click", advanceDialogue);
+document.getElementById("dialogueClose").addEventListener("click", closeDialogue);
+dialoguePanel.addEventListener("click", e=>{ if(e.target === dialoguePanel) closeDialogue(); });
+
+/* --------------------- SHOP WORKBENCH (real bench) ---------------- */
+const shopBenchPanel   = document.getElementById("shopBenchPanel");
+const shopRecipeListEl = document.getElementById("shopRecipeList");
+const shopKitNoteEl    = document.getElementById("shopKitNote");
+
+function openShopBench(){ renderShopRecipeList(); shopBenchPanel.classList.add("open"); }
+function closeShopBench(){ shopBenchPanel.classList.remove("open"); refreshPrompt(); }
+document.getElementById("closeShopBench").addEventListener("click", closeShopBench);
+shopBenchPanel.addEventListener("click", e=>{ if(e.target === shopBenchPanel) closeShopBench(); });
+
+function renderShopRecipeList(){
+  shopRecipeListEl.innerHTML = SHOP_RECIPES.map(r => {
+    const chips = r.inputs.map(i => {
+      const ok = haveQty(i.id) >= i.qty;
+      return `<span class="req-chip ${ok ? "ok":"missing"}">${i.name} ×${i.qty} <span class="have-tag">(have ${haveQty(i.id)})</span></span>`;
+    }).join("");
+    const staminaOk = stamina >= r.staminaCost;
+    return `
+      <div class="recipe-card">
+        <h3>${r.name}</h3>
+        <div class="req-list">${chips}</div>
+        <button class="craft-btn" data-craft="${r.id}" ${canCraft(r) ? "" : "disabled"}>
+          <span class="fill"></span>
+          <span>${staminaOk ? "Build" : "Too tired — needs "+r.staminaCost+" stamina"}</span>
+        </button>
+      </div>
+    `;
+  }).join("");
+  const held = Object.entries(inventory).filter(([,n])=>n>0)
+    .map(([id,n])=>`${id.replace(/_/g," ")} ×${n}`).join(", ");
+  shopKitNoteEl.textContent = `Kit: ${held || "empty"}.`;
+}
+shopRecipeListEl.addEventListener("click", e=>{
+  const btn = e.target.closest(".craft-btn");
+  if(!btn || btn.disabled) return;
+  const r = SHOP_RECIPES.find(x=>x.id===btn.dataset.craft);
+  if(!r || !canCraft(r)) return;
+  btn.disabled = true;
+  btn.querySelector(".fill").style.width = "100%";
+  setTimeout(()=>{
+    r.inputs.forEach(i => inventory[i.id] -= i.qty);
+    inventory[r.output.id] = haveQty(r.output.id) + 1;
+    setStamina(stamina - r.staminaCost);
+    renderShopRecipeList();
+    showToast(`<b>${r.output.name} built.</b> Added to your kit.`);
+  }, 900);
+});
+
+/* ------------------------- GENERIC GOODS SHOP --------------------- */
+const goodsPanel     = document.getElementById("goodsPanel");
+const goodsTitleEl   = document.getElementById("goodsTitle");
+const goodsSubtitleEl= document.getElementById("goodsSubtitle");
+const goodsListEl    = document.getElementById("goodsList");
+let activeShopId = null;
+
+function openShop(shopId){
+  const shop = SHOPS[shopId];
+  if(!shop) return;
+  activeShopId = shopId;
+  goodsTitleEl.textContent = shop.title;
+  goodsSubtitleEl.textContent = shop.subtitle;
+  renderGoods();
+  goodsPanel.classList.add("open");
+}
+function closeShop(){ goodsPanel.classList.remove("open"); activeShopId = null; refreshPrompt(); }
+document.getElementById("closeGoods").addEventListener("click", closeShop);
+goodsPanel.addEventListener("click", e=>{ if(e.target === goodsPanel) closeShop(); });
+
+function renderGoods(){
+  const shop = SHOPS[activeShopId];
+  goodsListEl.innerHTML = shop.goods.map(g => `
+    <div class="part-row">
+      <div>
+        <div class="pname">${g.name}</div>
+        <div class="pmeta">${g.desc} · ₴${g.price} · <span class="have-tag">have ${haveQty(g.id)}</span></div>
+      </div>
+      <button class="pbuy" data-buy="${g.id}" ${canAfford(g.price) ? "" : "disabled"}>Buy</button>
+    </div>
+  `).join("");
+}
+goodsListEl.addEventListener("click", e=>{
+  const id = e.target.dataset.buy;
+  if(!id || !activeShopId) return;
+  const shop = SHOPS[activeShopId];
+  const g = shop.goods.find(x=>x.id===id);
+  if(!g || !canAfford(g.price)) return;
+  setMoney(money - g.price);
+  inventory[id] = haveQty(id) + 1;
+  renderGoods();
+  showToast(`<b>${g.name} bought.</b> Added to your kit.`);
+});
+
+/* ---------------------- click / tap to walk --------------------- */
+function bfs(tx,ty){
+  if(!cellWalkable(tx,ty)) return [];
+  const key=(x,y)=>y*W+x;
+  const q=[[Math.round(player.fx-0.5),Math.round(player.fy-0.5)]];
+  const prev=new Map(); const seen=new Set([key(q[0][0],q[0][1])]);
+  while(q.length){
+    const [x,y]=q.shift();
+    if(x===tx && y===ty) break;
+    for(const [dx,dy] of [[0,-1],[0,1],[-1,0],[1,0]]){
+      const nx=x+dx, ny=y+dy;
+      if(!cellWalkable(nx,ny) || seen.has(key(nx,ny))) continue;
+      seen.add(key(nx,ny)); prev.set(key(nx,ny),[x,y]); q.push([nx,ny]);
     }
   }
-
-  const cx = px + player.x * s, cy = py + player.y * s;
-  ctx.strokeStyle = "rgba(120,255,230,0.5)";
-  ctx.beginPath();
-  for (const sgn of [-1, 1]) {
-    ctx.moveTo(cx, cy);
-    const a = player.a + sgn * FOV / 2;
-    ctx.lineTo(cx + Math.cos(a) * s * 5, cy + Math.sin(a) * s * 5);
+  if(!seen.has(key(tx,ty))) return [];
+  const out=[]; let cur=[tx,ty];
+  while(!(cur[0]===Math.round(player.fx-0.5) && cur[1]===Math.round(player.fy-0.5))){
+    out.push(cur); cur=prev.get(key(cur[0],cur[1])); if(!cur) return [];
   }
-  ctx.stroke();
-
-  ctx.fillStyle = "#8ffbe4";
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(1.5, s * 0.28), 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
+  return out.reverse();
 }
+cv.addEventListener("pointerdown", e=>{
+  if(e.target !== cv) return;
+  const r = cv.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * W);
+  const y = Math.floor((e.clientY - r.top) / r.height * H);
+  for(const t of [...OBJECTS, ...DOORS.filter(d=>d.prompt)]){
+    const w=t.w||1, h=t.h||1;
+    if(x>=t.x && x<t.x+w && y>=t.y && y<t.y+h){
+      let best=null, bestLen=Infinity;
+      for(let oy=t.y; oy<t.y+h; oy++) for(let ox=t.x; ox<t.x+w; ox++)
+        for(const [dx,dy] of [[0,-1],[0,1],[-1,0],[1,0]]){
+          const tx=ox+dx, ty=oy+dy;
+          if(!cellWalkable(tx,ty)) continue;
+          const p = bfs(tx,ty);
+          if(p.length < bestLen){ bestLen=p.length; best=p; }
+        }
+      pathQ = best || [];
+      if(!pathQ.length) refreshPrompt();
+      return;
+    }
+  }
+  pathQ = bfs(x,y);
+  if(!pathQ.length) refreshPrompt();
+});
 
-/* ---------- 12. GAME LOOP ----------------------------------------- */
-const statsEl  = document.getElementById("stats");
-const helpEl   = document.getElementById("help");
-const promptEl = document.getElementById("prompt");
-const talkEl     = document.getElementById("talk");
-const talkNameEl = document.getElementById("talkName");
-const talkLineEl = document.getElementById("talkLine");
-const talkMoreEl = document.getElementById("talkMore");
-const msgEl    = document.getElementById("msg");
+/* --------------------------- INPUT ----------------------------- */
+const keysHeld = new Set();
+const dirVec = {north:[0,-1], south:[0,1], west:[-1,0], east:[1,0]};
+addEventListener("keydown", e=>{
+  const k = e.key.toLowerCase();
+  const map = {arrowup:"north", w:"north", arrowdown:"south", s:"south",
+               arrowleft:"west", a:"west", arrowright:"east", d:"east"};
+  if(map[k]){ e.preventDefault(); keysHeld.add(map[k]); pathQ=[]; }
+  if(k===" " || k==="e"){ e.preventDefault(); if(!e.repeat) use(); }
+});
+addEventListener("keyup", e=>{
+  const k = e.key.toLowerCase();
+  const map = {arrowup:"north", w:"north", arrowdown:"south", s:"south",
+               arrowleft:"west", a:"west", arrowright:"east", d:"east"};
+  if(map[k]) keysHeld.delete(map[k]);
+});
 
-function setHelp() {
-  const mobile = touchUsed || coarsePointer;
-  helpEl.classList.toggle("touch", mobile);
-  helpEl.style.top = mobile ? (14 + mapPanelH + 10) + "px" : "";
-  helpEl.innerHTML = mobile
-    ? "joystick: move &nbsp;·&nbsp; drag: look &nbsp;·&nbsp; tap: interact"
-    : "drag the stick: move &nbsp;·&nbsp; drag elsewhere: look &nbsp;·&nbsp; click: interact" +
-      (DEV_KEYS ? "<br>dev keys: WASD / arrows &nbsp;·&nbsp; Q/E strafe &nbsp;·&nbsp; SHIFT run &nbsp;·&nbsp; " +
-                  "SPACE interact &nbsp;·&nbsp; T wireframe/solid &nbsp;·&nbsp; M minimap" : "");
+// virtual joystick
+const joyEl = document.getElementById("joystick");
+const nubEl = document.getElementById("nub");
+let joyVec = {x:0,y:0};
+let joyActive = false, joyId = null, joyBase = {x:0,y:0};
+const JOY_R = 40;
+
+function joyStart(e){
+  joyActive = true; joyId = e.pointerId; pathQ = [];
+  const r = joyEl.getBoundingClientRect();
+  joyBase = {x:r.left+r.width/2, y:r.top+r.height/2};
+  joyEl.setPointerCapture(joyId);
+  joyMove(e);
 }
-setHelp();
-let last = performance.now(), fps = 60, statTimer = 0;
+function joyMove(e){
+  if(!joyActive || e.pointerId!==joyId) return;
+  let dx = e.clientX-joyBase.x, dy = e.clientY-joyBase.y;
+  const len = Math.hypot(dx,dy);
+  const clamped = Math.min(len, JOY_R);
+  const nx = len ? dx/len*clamped : 0, ny = len ? dy/len*clamped : 0;
+  nubEl.style.transform = `translate(${nx-22}px, ${ny-22}px)`;
+  const mag = clamped/JOY_R;
+  joyVec = mag > 0.14 ? {x:dx/len*mag, y:dy/len*mag} : {x:0,y:0};
+}
+function joyEnd(e){
+  if(e.pointerId!==joyId) return;
+  joyActive=false; joyId=null; joyVec={x:0,y:0};
+  nubEl.style.transform = "translate(-50%,-50%)";
+}
+joyEl.addEventListener("pointerdown", joyStart);
+joyEl.addEventListener("pointermove", joyMove);
+joyEl.addEventListener("pointerup", joyEnd);
+joyEl.addEventListener("pointercancel", joyEnd);
 
-function frame(now) {
-  let dt = (now - last) / 1000;
+document.getElementById("actionBtn").addEventListener("pointerdown", e=>{ e.preventDefault(); use(); });
+
+document.getElementById("infoBtn").addEventListener("click", ()=> document.getElementById("infoPanel").classList.add("open"));
+document.getElementById("infoClose").addEventListener("click", ()=> document.getElementById("infoPanel").classList.remove("open"));
+
+document.querySelectorAll(".clock button").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    document.querySelectorAll(".clock button").forEach(o=>o.setAttribute("aria-pressed","false"));
+    b.setAttribute("aria-pressed","true");
+    block = b.dataset.block;
+  });
+});
+
+/* --------------------------- MAIN LOOP -------------------------- */
+let last = performance.now();
+function tick(now){
+  const dt = Math.min(0.05, (now-last)/1000);
   last = now;
-  if (!(dt > 0)) dt = 0.0001;
-  if (dt > 0.05) dt = 0.05;                 // clamp after tab switches
-  fps += (1 / dt - fps) * 0.1;
 
-  update(dt);
-
-  const dirX = Math.cos(player.a), dirY = Math.sin(player.a);
-  const planeX = -dirY * TAN_HALF, planeY = dirX * TAN_HALF;  // camera plane
-
-  fbChar.fill(" ");
-  fbShade.fill(0);
-
-  nowMs = now;
-  castColumns(dirX, dirY, planeX, planeY);
-  computeSprites(dirX, dirY, planeX, planeY);
-  updateFocus();
-  if (diag && msgUntil) { msgEl.style.opacity = "0"; msgUntil = 0; }
-  if (msgUntil && now > msgUntil) { msgEl.style.opacity = "0"; msgUntil = 0; }
-  drawWalls();
-  drawGrid(dirX, dirY, planeX, planeY);
-  drawNPCs();
-  helpEl.style.visibility = (talk || diag) ? "hidden" : "";
-  blit();
-  drawJoystick();
-  if (showMap && !diag) drawMinimap();
-  drawDiagnostic();
-
-  statTimer += dt;
-  if (statTimer > 0.15) {
-    statTimer = 0;
-    statsEl.textContent = W < 560
-      ? "x " + player.x.toFixed(1) + " y " + player.y.toFixed(1) + "  " + fps.toFixed(0) + "fps"
-      : "x " + player.x.toFixed(2) + "  y " + player.y.toFixed(2) +
-        "  a " + (player.a * 180 / Math.PI).toFixed(0).padStart(4) + "°" +
-        "   grid " + COLS + "×" + ROWS +
-        "   " + fps.toFixed(0) + " fps";
+  let ix=0, iy=0;
+  if(joyVec.x || joyVec.y){ ix=joyVec.x; iy=joyVec.y; }
+  else if(keysHeld.size){
+    for(const k of keysHeld){ ix += dirVec[k][0]; iy += dirVec[k][1]; }
+    const len = Math.hypot(ix,iy); if(len>1){ ix/=len; iy/=len; }
+  } else if(pathQ.length){
+    const [wx,wy] = pathQ[0];
+    const tx = wx+0.5, ty = wy+0.5;
+    const dx = tx-player.fx, dy = ty-player.fy;
+    const d = Math.hypot(dx,dy);
+    if(d < 0.10){ pathQ.shift(); if(!pathQ.length) refreshPrompt(); }
+    else { ix = dx/d; iy = dy/d; }
   }
 
-  requestAnimationFrame(frame);
-}
+  const mag = Math.hypot(ix,iy);
+  if(mag > 0.02){
+    moveAxisX(ix*SPEED*dt);
+    moveAxisY(iy*SPEED*dt);
+    if(Math.abs(ix) >= Math.abs(iy)) player.face = ix>0 ? "east" : "west";
+    else player.face = iy>0 ? "south" : "north";
+    player.moving = true;
+    player.phase += dt * (7 + mag*3);
+    refreshPrompt();
+  } else if(player.moving){
+    player.moving = false;
+    player.phase = 0;
+    refreshPrompt();
+  }
 
-layout();
-requestAnimationFrame(frame);
+  render();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* --------------------------- LAYOUT ----------------------------- */
+function fit(){
+  const avail = frame.parentElement.getBoundingClientRect();
+  const size = Math.floor(Math.min(avail.width, avail.height));
+  if(size < 40) return;   // screen not visible yet — don't poison the canvas size
+  frame.style.width = size+"px";
+  frame.style.height = size+"px";
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  cv.width = size*dpr; cv.height = size*dpr;
+  cv.style.width = size+"px"; cv.style.height = size+"px";
+  T = cv.width / W;
+}
+addEventListener("resize", fit);
+if(window.visualViewport) window.visualViewport.addEventListener("resize", fit);
+refreshPrompt();
 </script>
 </body>
 </html>
