@@ -86,7 +86,7 @@ Style target: GBA/DS-era handheld battles. Pixel sprites drawn at an integer
 `pixel_scale`, a 3/4 top-down view, light bordered HUD panels, outlined text and
 move-name callouts.
 
-Each creature sheet uses 64px frames: 4 animation frames per row, with
+Each creature sheet uses 64px frames: 6 animation frames per row, with
 idle/walk/attack/hurt rows each split into down/up/side facings (side faces
 right and is mirrored for left). Frame 0 of the hurt rows is the white hit flash.
 The layout lives in `sheet` in `assets/assets.ron`.

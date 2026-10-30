@@ -34,7 +34,14 @@ fine. "Too floaty", "Spark feels useless", "Hard AI is unfair" are all useful.
 - [ ] 3v3 fights run about 80s against the AI. Too long?
 - [ ] Do the "Ember!" / "Go, Tidepup!" callouts help, or are they noise?
 
-## 6. Anything broken
+## 6. New in milestone 3
+- [ ] Arena row on the select screen: does the meadow (rock wall in the middle) play differently from the snowfield?
+- [ ] Move effects: can you tell moves apart by their look? Is anything hard to see on snow or grass?
+      (`--scene vfx` screenshot shows them all)
+- [ ] Sound (`cargo run --release --features audio`): too loud, too harsh, too repetitive?
+- [ ] Animation: do walking and attacking look smooth enough?
+
+## 7. Anything broken
 - [ ] Crashes, stuck creatures, attacks that hit through pillars when they shouldn't, etc.
 
 Quick reference: **Esc/P** pause (R restart, Enter select, X quit) · **R** rematch on the result screen.

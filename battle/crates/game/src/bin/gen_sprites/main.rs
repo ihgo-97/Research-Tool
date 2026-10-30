@@ -2,7 +2,7 @@
 //! ground tiles and obstacle rocks. Run: `cargo run --release --bin gen_sprites`.
 //!
 //! Creatures are 3D primitive models rendered to pixel art (see `sdf.rs`):
-//! 64px frames, 4 animation frames per row, and rows grouped per animation as
+//! 64px frames, 6 animation frames per row, and rows grouped per animation as
 //! [down, up, side] facings (idle 0-2, walk 3-5, attack 6-8, hurt 9-11).
 //! This must match `sheet` in assets.ron. Any sheet can be replaced by real art
 //! with the same layout without touching code.
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 const FRAME: usize = 64;
-const COLS: usize = 4;
+const COLS: usize = 6;
 const ANIMS: usize = 4;
 const FACINGS: [Facing; 3] = [Facing::Down, Facing::Up, Facing::Side];
 /// Game units per sprite pixel; must match `pixel_scale` in assets.ron.
@@ -61,8 +61,19 @@ fn root() -> PathBuf {
     }
 }
 
+/// Sample a keyframe track at `u` in 0..1 (linear interpolation).
+fn track(keys: &[f32], u: f32) -> f32 {
+    let x = u * (keys.len() - 1) as f32;
+    let i = (x as usize).min(keys.len() - 2);
+    keys[i] + (keys[i + 1] - keys[i]) * (x - i as f32)
+}
+
 fn pose(anim: usize, frame: usize) -> Pose {
+    use std::f32::consts::TAU;
     let ph = frame as f32 / COLS as f32;
+    let w = ph * TAU;
+    // Progress through one-shot animations (attack, hurt), 0..1 inclusive.
+    let u = frame as f32 / (COLS - 1) as f32;
     let base = Pose {
         squash: 1.0,
         phase: ph,
@@ -71,29 +82,29 @@ fn pose(anim: usize, frame: usize) -> Pose {
     match anim {
         // idle: breathing bob, blink on the last frame
         0 => Pose {
-            bob: [0.0, 0.5, 0.0, -0.5][frame],
-            squash: [1.0, 1.02, 1.0, 0.98][frame],
-            eyes_closed: frame == 3,
+            bob: 0.5 * w.sin(),
+            squash: 1.0 + 0.02 * w.sin(),
+            eyes_closed: frame == COLS - 1,
             ..base
         },
-        // walk: trot cycle
+        // walk: trot cycle, two bounces per stride
         1 => Pose {
-            stride: [1.0, 0.0, -1.0, 0.0][frame],
-            bob: [0.0, 1.0, 0.0, 1.0][frame],
+            stride: w.cos(),
+            bob: w.sin().abs(),
             ..base
         },
         // attack: wind back, lunge, hold, recover
         2 => Pose {
-            lean: [-2.0, 3.0, 3.5, 1.0][frame],
-            squash: [1.05, 0.95, 0.94, 0.99][frame],
+            lean: track(&[-2.0, -1.0, 3.0, 3.5, 2.0, 1.0], u),
+            squash: track(&[1.05, 1.03, 0.95, 0.94, 0.97, 0.99], u),
             eyes_closed: frame == 0,
             mouth_open: frame > 0,
             ..base
         },
-        // hurt: frame 0 becomes the white flash; then recoil
+        // hurt: frame 0 becomes the white flash; then recoil and settle
         _ => Pose {
-            lean: [0.0, -2.5, -1.8, -0.8][frame],
-            squash: [1.0, 0.9, 0.94, 0.98][frame],
+            lean: track(&[0.0, -2.6, -2.2, -1.6, -1.0, -0.5], u),
+            squash: track(&[1.0, 0.88, 0.91, 0.94, 0.97, 0.99], u),
             eyes_closed: true,
             mouth_open: true,
             ..base

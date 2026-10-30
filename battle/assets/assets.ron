@@ -10,10 +10,10 @@
     // The current sheets are generated placeholders: `cargo run --release --bin gen_sprites`.
     sheet: (
         frame_size: 64,
-        columns: 4,
+        columns: 6,
         rows: (idle: 0, walk: 3, attack: 6, hurt: 9),
         facings: 3,
-        fps: 8.0,
+        fps: 10.0,
         pixel_scale: 2.0,
         anchor: (32.0, 46.0),
         portrait: (x: 6.0, y: 4.0, w: 52.0, h: 48.0),
