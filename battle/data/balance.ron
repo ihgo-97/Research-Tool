@@ -1,6 +1,7 @@
 // Global balance knobs. Times are seconds, speeds are units/second.
 (
     tick_rate: 60,
+    // Per creature on the larger team (a 3v3 gets three times as long).
     max_battle_seconds: 90.0,
     // damage = power * attack / defense * damage_scale * stab * type * variance
     damage_scale: 0.22,
@@ -16,6 +17,8 @@
         iframes: 0.16,
         cancels_recovery: true,
     ),
+    // Team battles.
+    switching: (cooldown: 3.0, swap_iframes: 0.5, faint_delay: 1.2),
     // Lingering conditions applied by moves (see `status` in moves.ron).
     // One status at a time; a new one can't overwrite an existing one.
     statuses: {
@@ -31,16 +34,19 @@
             reaction_time: 0.35, dodge_chance: 0.25, threat_lookahead: 0.4,
             aggression: 0.5, aim_error_deg: 12.0, lead: 0.3,
             range_band: 50.0, strafe_switch: 2.0, strafe_amount: 0.5, kite_range: 280.0,
+            switch_chance: 0.02,
         ),
         "normal": (
             reaction_time: 0.22, dodge_chance: 0.55, threat_lookahead: 0.45,
             aggression: 0.7, aim_error_deg: 6.0, lead: 0.6,
             range_band: 40.0, strafe_switch: 1.6, strafe_amount: 0.7, kite_range: 300.0,
+            switch_chance: 0.04,
         ),
         "hard": (
             reaction_time: 0.12, dodge_chance: 0.85, threat_lookahead: 0.5,
             aggression: 0.9, aim_error_deg: 3.0, lead: 0.9,
             range_band: 30.0, strafe_switch: 1.2, strafe_amount: 0.8, kite_range: 300.0,
+            switch_chance: 0.08,
         ),
     },
 )

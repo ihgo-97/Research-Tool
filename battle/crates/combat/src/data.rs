@@ -255,6 +255,9 @@ pub struct AiProfile {
     pub strafe_amount: f32,
     /// Distance kept while every move is on cooldown.
     pub kite_range: f32,
+    /// Team battles: chance per decision to switch out of a bad matchup.
+    #[serde(default)]
+    pub switch_chance: f32,
 }
 
 /// A lingering condition (burn, paralysis, sleep...). Generic: any mix of
@@ -303,6 +306,26 @@ pub struct StatusDef {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct SwitchingDef {
+    /// Seconds between voluntary switches.
+    pub cooldown: f32,
+    /// Invulnerability for the creature coming in.
+    pub swap_iframes: f32,
+    /// Pause after a knockout before the next creature is sent out.
+    pub faint_delay: f32,
+}
+
+impl Default for SwitchingDef {
+    fn default() -> Self {
+        Self {
+            cooldown: 3.0,
+            swap_iframes: 0.5,
+            faint_delay: 1.2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Balance {
     pub tick_rate: u32,
     pub max_battle_seconds: f32,
@@ -317,6 +340,8 @@ pub struct Balance {
     /// Exponential knockback decay rate (1/s).
     pub knockback_decay: f32,
     pub dash: DashDef,
+    #[serde(default)]
+    pub switching: SwitchingDef,
     #[serde(default)]
     pub statuses: HashMap<String, StatusDefRaw>,
     pub ai_profiles: HashMap<String, AiProfile>,

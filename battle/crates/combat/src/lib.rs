@@ -34,6 +34,51 @@ pub fn run_ai_battle(data: &Arc<GameData>, a: CreatureId, b: CreatureId, profile
     run_ai_battle_with(data, a, b, [profile, profile], seed)
 }
 
+/// Result of one AI-vs-AI team battle.
+#[derive(Debug, Clone)]
+pub struct TeamSummary {
+    pub rosters: [Vec<CreatureId>; 2],
+    pub outcome: Outcome,
+    pub seconds: f32,
+    /// Voluntary switches per side.
+    pub switches: [u32; 2],
+    /// Fainted creatures per side.
+    pub fainted: [usize; 2],
+}
+
+/// Run an AI-vs-AI team battle (rosters of any size) until it ends.
+pub fn run_ai_team_battle(data: &Arc<GameData>, rosters: [Vec<CreatureId>; 2], profiles: [&str; 2], seed: u64) -> TeamSummary {
+    let prof = |name: &str| {
+        data.ai_profile(name)
+            .unwrap_or_else(|| panic!("unknown AI profile '{name}'"))
+            .clone()
+    };
+    let mut battle = Battle::with_rosters(data.clone(), &rosters, seed);
+    let mut ais = [
+        ai::AiController::new(prof(profiles[0]), seed.wrapping_mul(31).wrapping_add(1)),
+        ai::AiController::new(prof(profiles[1]), seed.wrapping_mul(31).wrapping_add(2)),
+    ];
+    let cap = ((battle.time_limit() + 5.0) * data.balance.tick_rate as f32) as u64;
+    while battle.outcome().is_none() && battle.tick() < cap {
+        let intents = [ais[0].update(&battle, 0), ais[1].update(&battle, 1)];
+        battle.step(&intents);
+    }
+    let fainted = |side: usize| {
+        battle.teams()[side]
+            .members
+            .iter()
+            .filter(|&&m| !battle.fighter(m).fighter.alive())
+            .count()
+    };
+    TeamSummary {
+        outcome: battle.outcome().unwrap_or(Outcome::Timeout { team: None }),
+        seconds: battle.time(),
+        switches: [battle.teams()[0].switches, battle.teams()[1].switches],
+        fainted: [fainted(0), fainted(1)],
+        rosters,
+    }
+}
+
 /// Like [`run_ai_battle`] but each side can use a different AI profile.
 pub fn run_ai_battle_with(data: &Arc<GameData>, a: CreatureId, b: CreatureId, profiles: [&str; 2], seed: u64) -> BattleSummary {
     let prof = |name: &str| {

@@ -380,3 +380,86 @@ fn type_immunity_prevents_status() {
     let seen = land_hit(&mut b, 0);
     assert!(!seen.iter().any(|e| matches!(e, Event::StatusApplied { .. })), "fire types can't be burned");
 }
+
+// ------------------------------------------------------------- team battles
+
+fn trio(d: &GameData, ids: [&str; 3]) -> Vec<usize> {
+    ids.iter().map(|i| d.creature_id(i).unwrap()).collect()
+}
+
+#[test]
+fn voluntary_switch_swaps_in_place_with_cooldown() {
+    let d = data();
+    let rosters = [trio(&d, ["emberkit", "tidepup", "sproutle"]), trio(&d, ["voltfin", "pebblor", "galeon"])];
+    let mut b = Battle::with_rosters(d.clone(), &rosters, 1);
+    assert_eq!(b.active(0), 0);
+    assert!(b.fighter(1).fighter.benched && b.fighter(2).fighter.benched);
+    // Walk a bit so the swap position is distinguishable from the spawn.
+    for _ in 0..30 {
+        b.step(&[Intent { move_dir: Vec2::new(1.0, 0.0), ..Default::default() }, Intent::default()]);
+    }
+    let pos = b.fighter(0).body.pos;
+    b.step(&[Intent { switch_to: Some(2), ..Default::default() }, Intent::default()]);
+    assert!(b.events().iter().any(|e| matches!(e, Event::SentOut { team: 0, from: 0, to: 2, voluntary: true })));
+    assert_eq!(b.active(0), 2);
+    let new = b.fighter(2);
+    assert!(!new.fighter.benched && new.fighter.iframes > 0.0);
+    assert!(new.body.pos.distance(pos) < 10.0, "comes in where the old one stood");
+    assert!(b.fighter(0).fighter.benched);
+    // Cooldown blocks an immediate switch back.
+    b.step(&[Intent { switch_to: Some(0), ..Default::default() }, Intent::default()]);
+    assert_eq!(b.active(0), 2);
+}
+
+#[test]
+fn benched_fighters_cannot_be_hit_and_keep_recovering() {
+    let d = data();
+    let rosters = [trio(&d, ["voltfin", "tidepup", "sproutle"]), trio(&d, ["emberkit", "pebblor", "galeon"])];
+    let mut b = Battle::with_rosters(d.clone(), &rosters, 2);
+    // Use a move, then switch out: the benched creature's cooldown still ticks.
+    let aim = b.fighter(b.active(1)).body.pos;
+    b.step(&[Intent { aim, use_move: Some(1), ..Default::default() }, Intent::default()]);
+    let cd = b.fighter(0).fighter.slots[1].remaining;
+    for _ in 0..60 {
+        b.step(&[Intent { switch_to: Some(1), ..Default::default() }, Intent::default()]);
+    }
+    assert!(b.fighter(0).fighter.benched);
+    assert!(b.fighter(0).fighter.slots[1].remaining < cd - 0.9);
+}
+
+#[test]
+fn knocked_out_creature_is_replaced_and_last_knockout_ends_battle() {
+    let d = data();
+    let rosters = [trio(&d, ["emberkit", "tidepup", "sproutle"]), vec![d.creature_id("galeon").unwrap()]];
+    let profile = d.ai_profile("hard").unwrap().clone();
+    let mut b = Battle::with_rosters(d.clone(), &rosters, 3);
+    let mut ai0 = combat::ai::AiController::new(profile.clone(), 1);
+    let mut ai1 = combat::ai::AiController::new(profile, 2);
+    let mut sent_after_faint = 0;
+    while b.outcome().is_none() && b.time() < 200.0 {
+        let i = [ai0.update(&b, 0), ai1.update(&b, 1)];
+        b.step(&i);
+        sent_after_faint += b.events().iter().filter(|e| matches!(e, Event::SentOut { voluntary: false, .. })).count();
+    }
+    let out = b.outcome().expect("battle ends");
+    if out.winner() == Some(1) {
+        assert_eq!(sent_after_faint, 2, "both replacements were sent out before team 0 lost");
+        assert!(b.teams()[0].members.iter().all(|&m| !b.fighter(m).fighter.alive()));
+    } else {
+        assert!(!b.fighter(3).fighter.alive());
+    }
+}
+
+#[test]
+fn ai_team_battles_finish_and_are_deterministic() {
+    let d = data();
+    let rosters = [trio(&d, ["emberkit", "sproutle", "pebblor"]), trio(&d, ["tidepup", "voltfin", "galeon"])];
+    for seed in 0..4 {
+        let a = combat::run_ai_team_battle(&d, rosters.clone(), ["normal", "normal"], seed);
+        let b = combat::run_ai_team_battle(&d, rosters.clone(), ["normal", "normal"], seed);
+        assert_eq!(a.outcome, b.outcome);
+        assert_eq!(a.seconds, b.seconds);
+        assert_eq!(a.switches, b.switches);
+        assert!(a.seconds <= d.balance.max_battle_seconds * 3.0 + 0.1);
+    }
+}

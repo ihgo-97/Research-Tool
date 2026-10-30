@@ -9,6 +9,7 @@ echo "== clippy";  cargo clippy --all-targets -- -D warnings
 echo "== audio feature compiles"; cargo check --release --features audio
 echo "== test";    cargo test --release
 echo "== headless"; ./target/release/arena --headless "${HEADLESS_N:-20}"
+echo "== headless 3v3"; ./target/release/arena --headless "${HEADLESS_N:-20}" --team-size 3
 
 if [[ -n "${DISPLAY:-}" ]]; then
     ./target/release/arena --screenshot 300 out/verify.png

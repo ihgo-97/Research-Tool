@@ -84,7 +84,8 @@ impl Fx {
         }
     }
 
-    /// React to the events of the battle's latest tick.
+    /// React to the events of the battle's latest tick. `player` is the
+    /// player's side (for screen shake).
     pub fn on_events(&mut self, battle: &Battle, assets: &AssetDb, feel: &Feel, player: usize) {
         let data = &*battle.data;
         for ev in battle.events() {
@@ -116,7 +117,7 @@ impl Fx {
                     if let Some(f) = self.flash.get_mut(target) {
                         *f = feel.flash_seconds;
                     }
-                    if target == player {
+                    if battle.fighter(target).fighter.team as usize == player {
                         self.shake = self.shake.max(feel.shake.player_hit);
                     }
                     self.hitstop = self.hitstop.max(feel.hitstop_for(damage));
@@ -154,6 +155,24 @@ impl Fx {
                     self.burst(v.body.pos, feel.particles.ko, (60.0, 320.0), 0.8, 6.0, c);
                     self.shake = feel.shake.ko;
                     self.cues.push("ko");
+                }
+                Event::SentOut { from, to, voluntary, .. } => {
+                    let v = battle.fighter(to);
+                    let c = &data.creatures[v.fighter.creature];
+                    let col = rgb(assets.creature_color(&c.asset), 1.0);
+                    if let Some(slot) = self.callouts.get_mut(from) {
+                        *slot = None;
+                    }
+                    if let Some(slot) = self.callouts.get_mut(to) {
+                        *slot = Some(Callout {
+                            text: format!("Go, {}!", assets.creature_name(&c.asset)),
+                            color: col,
+                            t: 0.0,
+                        });
+                    }
+                    self.burst(v.body.pos, 24, (80.0, 220.0), 0.45, 4.0, Color::new(1.0, 1.0, 1.0, 1.0));
+                    self.burst(v.body.pos, 12, (40.0, 120.0), 0.6, 5.0, col);
+                    self.cues.push(if voluntary { "switch" } else { "send_out" });
                 }
                 Event::StatusApplied { fighter, status } => {
                     let (_, text, col) = assets.status(&data.statuses[status].id);

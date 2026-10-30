@@ -34,6 +34,8 @@
         "dash": None,
         "ko": None,
         "status": None,
+        "switch": None,
+        "send_out": None,
     },
     // Status display: short HUD badge, pop-up text when inflicted, colour.
     statuses: {

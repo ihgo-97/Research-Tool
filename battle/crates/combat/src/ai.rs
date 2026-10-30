@@ -35,11 +35,12 @@ impl AiController {
         }
     }
 
-    pub fn update(&mut self, battle: &Battle, me: usize) -> Intent {
+    /// Decide this tick's intent for whoever `side` currently has on the field.
+    pub fn update(&mut self, battle: &Battle, side: usize) -> Intent {
         let data = &*battle.data;
         let dt = data.dt();
-        let me_v = battle.fighter(me);
-        if !me_v.fighter.alive() {
+        let me_v = battle.fighter(battle.active(side));
+        if !me_v.fighter.active() {
             return Intent::default();
         }
         let Some(target) = nearest_enemy(battle, &me_v) else {
@@ -93,7 +94,13 @@ impl AiController {
             dir = avoid_obstacles(dir, my_pos, me_v.body.radius, data);
             self.move_dir = dir.normalize_or_zero();
 
-            // 3. Attack.
+            // 3. Switch out of a bad matchup or when nearly fainted.
+            if let Some(slot) = self.pick_switch(battle, side, &me_v, &target) {
+                intent.switch_to = Some(slot);
+                return intent;
+            }
+
+            // 4. Attack.
             if me_v.fighter.action == Action::Idle && self.rng.chance(self.profile.aggression) {
                 if let Some((slot, _)) = self.best_move(battle, &me_v, &target, true) {
                     intent.use_move = Some(slot);
@@ -108,6 +115,33 @@ impl AiController {
             self.move_dir
         };
         intent
+    }
+
+    fn pick_switch(&mut self, battle: &Battle, side: usize, me: &FighterView, target: &FighterView) -> Option<usize> {
+        let team = &battle.teams()[side];
+        if team.members.len() < 2 || team.switch_cooldown > 0.0 || !self.rng.chance(self.profile.switch_chance) {
+            return None;
+        }
+        let data = &*battle.data;
+        let foe = target.fighter.creature;
+        let current = matchup(data, me.fighter.creature, foe);
+        let hp = me.fighter.hp / me.fighter.max_hp;
+        let mut best: Option<(usize, f32)> = None;
+        for (slot, &m) in team.members.iter().enumerate() {
+            let f = battle.fighter(m);
+            if m == me.fighter.index || !f.fighter.alive() {
+                continue;
+            }
+            // Prefer healthy teammates with a better type matchup.
+            let score = matchup(data, f.fighter.creature, foe) + 0.3 * (f.fighter.hp / f.fighter.max_hp);
+            if best.is_none_or(|(_, b)| score > b) {
+                best = Some((slot, score));
+            }
+        }
+        let (slot, score) = best?;
+        let bad_matchup = score - (current + 0.3 * hp) > 0.5;
+        let desperate = hp < 0.2 && score > current;
+        (bad_matchup || desperate).then_some(slot)
     }
 
     /// Highest expected-damage ready move. With `in_range_only`, only moves
@@ -187,10 +221,27 @@ impl AiController {
     }
 }
 
+/// How well creature `a` fares against `b` on types alone: best STAB-weighted
+/// multiplier `a` can deal minus the best `b` can deal back.
+pub fn matchup(data: &GameData, a: usize, b: usize) -> f32 {
+    let best = |x: usize, y: usize| {
+        let (cx, cy) = (&data.creatures[x], &data.creatures[y]);
+        cx.moves
+            .iter()
+            .map(|&m| {
+                let mv = &data.moves[m];
+                let stab = if cx.types.contains(&mv.element) { data.balance.stab } else { 1.0 };
+                data.types.multiplier(mv.element, &cy.types) * stab
+            })
+            .fold(0.0, f32::max)
+    };
+    best(a, b) - best(b, a)
+}
+
 pub fn nearest_enemy(battle: &Battle, me: &FighterView) -> Option<FighterView> {
     (0..battle.fighter_count())
         .map(|i| battle.fighter(i))
-        .filter(|f| f.fighter.team != me.fighter.team && f.fighter.alive())
+        .filter(|f| f.fighter.team != me.fighter.team && f.fighter.active())
         .min_by(|a, b| {
             let da = a.body.pos.distance(me.body.pos);
             let db = b.body.pos.distance(me.body.pos);
@@ -258,7 +309,7 @@ pub fn detect_threat(battle: &Battle, me: &FighterView, lookahead: f32) -> Optio
     }
     for i in 0..battle.fighter_count() {
         let o = battle.fighter(i);
-        if o.fighter.team == me.fighter.team || !o.fighter.alive() {
+        if o.fighter.team == me.fighter.team || !o.fighter.active() {
             continue;
         }
         if let Action::Windup { slot, .. } = o.fighter.action {

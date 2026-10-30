@@ -5,7 +5,8 @@
 //! arena --headless [N]                   N AI-vs-AI battles per ordered matchup, print stats
 //! arena --screenshot FRAME PATH          render FRAME ticks of an AI-vs-AI battle, save PNG
 //! options:
-//!   --player ID  --enemy ID              creatures (data/creatures.ron ids)
+//!   --player ID[,ID..]  --enemy ID[,ID..] creatures (data/creatures.ron ids); a list is a team
+//!   --team-size N                        creatures per side (default: length of --player, else 1)
 //!   --matchup A B                        headless: only this pairing
 //!   --moves                              headless: also print per-move stats
 //!   --ai NAME                            AI profile from data/balance.ron (default normal)
@@ -37,6 +38,7 @@ struct Args {
     player: Option<String>,
     enemy: Option<String>,
     matchup: Option<(String, String)>,
+    team_size: Option<usize>,
     moves: bool,
     ai: String,
     ai_b: Option<String>,
@@ -53,6 +55,7 @@ fn parse_args() -> Result<Args, String> {
         player: None,
         enemy: None,
         matchup: None,
+        team_size: None,
         moves: false,
         ai: "normal".into(),
         ai_b: None,
@@ -94,6 +97,13 @@ fn parse_args() -> Result<Args, String> {
                 a.matchup = Some((x, y));
             }
             "--moves" => a.moves = true,
+            "--team-size" => {
+                let n: usize = val(&mut it, "--team-size")?.parse().map_err(|_| "--team-size: not a number")?;
+                if n == 0 {
+                    return Err("--team-size must be at least 1".into());
+                }
+                a.team_size = Some(n);
+            }
             "--ai" => a.ai = val(&mut it, "--ai")?,
             "--ai-b" => a.ai_b = Some(val(&mut it, "--ai-b")?),
             "--seed" => a.seed = val(&mut it, "--seed")?.parse().map_err(|_| "--seed: not a number")?,
@@ -155,16 +165,23 @@ fn main() -> ExitCode {
         }
     }
     let creature = |id: &str| data.creature_id(id).ok_or_else(|| format!("unknown creature '{id}'"));
-    let resolve = |o: &Option<String>, default: usize| -> Result<usize, String> {
-        o.as_deref().map(creature).unwrap_or(Ok(default))
+    let resolve = |o: &Option<String>| -> Result<Vec<usize>, String> {
+        match o.as_deref() {
+            Some(list) => list.split(',').map(|s| creature(s.trim())).collect(),
+            None => Ok(Vec::new()),
+        }
     };
-    let (player, enemy) = match (resolve(&args.player, 0), resolve(&args.enemy, 1 % data.creatures.len())) {
+    let (player, enemy) = match (resolve(&args.player), resolve(&args.enemy)) {
         (Ok(p), Ok(e)) => (p, e),
         (Err(e), _) | (_, Err(e)) => {
             eprintln!("error: {e}");
             return ExitCode::from(2);
         }
     };
+    let team_size = args.team_size.unwrap_or(player.len().max(enemy.len()).max(1));
+    let n = data.creatures.len();
+    let player = app::fill_roster(player, team_size, n, 0);
+    let enemy = app::fill_roster(if enemy.is_empty() { vec![1 % n] } else { enemy }, team_size, n, 3);
 
     if let Some(per_pair) = args.headless {
         let matchup = match &args.matchup {
@@ -183,6 +200,7 @@ fn main() -> ExitCode {
             &headless::HeadlessOpts {
                 per_pair,
                 matchup,
+                team_size,
                 ai: args.ai,
                 ai_b: args.ai_b,
                 seed: args.seed,
@@ -200,6 +218,7 @@ fn main() -> ExitCode {
         }
     };
     let cfg = app::AppConfig {
+        team_size,
         assets_dir,
         feel,
         player,

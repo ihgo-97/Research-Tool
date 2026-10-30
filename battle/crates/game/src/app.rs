@@ -5,7 +5,7 @@ use crate::assets::AssetDb;
 use crate::audio::Sfx;
 use crate::feel::Feel;
 use crate::fx::Fx;
-use crate::render::{self, Gfx, SelectView, ARENA_X, ARENA_Y};
+use crate::render::{self, Gfx, SelectRow, SelectView, ARENA_X, ARENA_Y};
 use crate::sprites::Sprites;
 use combat::ai::AiController;
 use combat::{Battle, Event, GameData, Intent};
@@ -28,8 +28,10 @@ pub struct Screenshot {
 }
 
 pub struct AppConfig {
-    pub player: usize,
-    pub enemy: usize,
+    /// Both rosters have this many creatures (1 = classic 1v1).
+    pub team_size: usize,
+    pub player: Vec<usize>,
+    pub enemy: Vec<usize>,
     pub ai: String,
     pub seed: u64,
     pub screenshot: Option<Screenshot>,
@@ -37,14 +39,19 @@ pub struct AppConfig {
     pub feel: Feel,
 }
 
+/// Team sizes offered on the select screen.
+const FORMATS: [usize; 2] = [1, 3];
+
 struct BattleScreen {
     battle: Battle,
     enemy_ai: AiController,
-    /// Drives the player's creature in screenshot mode.
+    /// Drives the player's side in screenshot mode.
     autoplay: Option<AiController>,
     acc: f32,
     fx: Fx,
     dash_buffer: f32,
+    /// Roster slot requested by a switch key, consumed on the next tick.
+    switch_request: Option<usize>,
     paused: bool,
 }
 
@@ -53,7 +60,30 @@ enum Screen {
     Battle(Box<BattleScreen>),
 }
 
+/// The player is always side 0.
 const PLAYER: usize = 0;
+
+/// Fill a roster up to `n` creatures, keeping picks and avoiding duplicates.
+pub fn fill_roster(mut picks: Vec<usize>, n: usize, creatures: usize, offset: usize) -> Vec<usize> {
+    picks.truncate(n);
+    let mut k = offset;
+    while picks.len() < n.min(creatures) {
+        let c = k % creatures;
+        if !picks.contains(&c) {
+            picks.push(c);
+        }
+        k += 1;
+    }
+    picks
+}
+
+fn select_rows(cfg: &AppConfig) -> Vec<SelectRow> {
+    let mut rows = vec![SelectRow::Format];
+    rows.extend((0..cfg.team_size).map(SelectRow::Player));
+    rows.extend((0..cfg.team_size).map(SelectRow::Enemy));
+    rows.push(SelectRow::Ai);
+    rows
+}
 
 pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
     let (sprites, warn_s) = Sprites::load(&cfg.assets_dir, &assets);
@@ -74,8 +104,9 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
         _ => 3,
     });
     let mut ai_idx = ai_names.iter().position(|n| *n == cfg.ai).unwrap_or(0);
-    let mut focus = 0usize;
+    let mut focus = 1usize;
     let mut seed = cfg.seed;
+    let n = data.creatures.len();
 
     let shot = cfg.screenshot.take();
     let mut screen = match shot.as_ref().map(|s| s.scene) {
@@ -94,17 +125,19 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
         let dt = get_frame_time().min(0.1);
         match &mut screen {
             Screen::Select => {
+                let rows = select_rows(&cfg);
+                focus = focus.min(rows.len() - 1);
                 if shot.is_none() {
                     if is_key_pressed(KeyCode::Escape) {
                         break;
                     }
                     if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
-                        focus = (focus + 2) % 3;
+                        focus = (focus + rows.len() - 1) % rows.len();
                     }
                     if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
-                        focus = (focus + 1) % 3;
+                        focus = (focus + 1) % rows.len();
                     }
-                    let delta = if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
+                    let delta: i32 = if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
                         -1
                     } else if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D) {
                         1
@@ -112,11 +145,27 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
                         0
                     };
                     if delta != 0 {
-                        let n = data.creatures.len() as i32;
-                        match focus {
-                            0 => cfg.player = (cfg.player as i32 + delta).rem_euclid(n) as usize,
-                            1 => cfg.enemy = (cfg.enemy as i32 + delta).rem_euclid(n) as usize,
-                            _ => ai_idx = (ai_idx as i32 + delta).rem_euclid(ai_names.len() as i32) as usize,
+                        // Cycle a roster slot, skipping creatures already on that team.
+                        let cycle = |roster: &mut Vec<usize>, k: usize| {
+                            let mut c = roster[k];
+                            for _ in 0..n {
+                                c = (c as i32 + delta).rem_euclid(n as i32) as usize;
+                                if !roster.iter().enumerate().any(|(j, &o)| j != k && o == c) {
+                                    break;
+                                }
+                            }
+                            roster[k] = c;
+                        };
+                        match rows[focus] {
+                            SelectRow::Format => {
+                                let i = FORMATS.iter().position(|&f| f == cfg.team_size).unwrap_or(0) as i32;
+                                cfg.team_size = FORMATS[(i + delta).rem_euclid(FORMATS.len() as i32) as usize];
+                                cfg.player = fill_roster(cfg.player.clone(), cfg.team_size, n, 0);
+                                cfg.enemy = fill_roster(cfg.enemy.clone(), cfg.team_size, n, 3);
+                            }
+                            SelectRow::Player(k) => cycle(&mut cfg.player, k),
+                            SelectRow::Enemy(k) => cycle(&mut cfg.enemy, k),
+                            SelectRow::Ai => ai_idx = (ai_idx as i32 + delta).rem_euclid(ai_names.len() as i32) as usize,
                         }
                     }
                     if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
@@ -130,9 +179,11 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
                     &data,
                     &gfx,
                     &SelectView {
+                        rows: &rows,
                         focus,
-                        player: cfg.player,
-                        enemy: cfg.enemy,
+                        team_size: cfg.team_size,
+                        player: &cfg.player,
+                        enemy: &cfg.enemy,
                         ai: &ai_names[ai_idx],
                     },
                 );
@@ -162,12 +213,8 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
                 // captures are deterministic.
                 let frame_dt = if shot.is_some() { data.dt() } else { dt };
                 if !bs.paused {
-                    if shot.is_none()
-                        && (is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::RightShift))
-                    {
-                        // Edge-triggered input is polled per frame (a frame may run
-                        // zero ticks) and buffered so an early press still dashes.
-                        bs.dash_buffer = feel.dash_buffer;
+                    if shot.is_none() {
+                        poll_edge_input(bs, &feel);
                     }
                     if bs.fx.hitstop > 0.0 {
                         bs.fx.hitstop = (bs.fx.hitstop - frame_dt).max(0.0);
@@ -206,17 +253,45 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
     }
 }
 
+/// Edge-triggered keys are polled per frame (a frame may run zero ticks)
+/// and buffered so an early press still registers.
+fn poll_edge_input(bs: &mut BattleScreen, feel: &Feel) {
+    if is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::RightShift) {
+        bs.dash_buffer = feel.dash_buffer;
+    }
+    let team = &bs.battle.teams()[PLAYER];
+    let direct = [KeyCode::Z, KeyCode::X, KeyCode::C];
+    for (slot, key) in direct.iter().enumerate() {
+        if slot < team.members.len() && is_key_pressed(*key) {
+            bs.switch_request = Some(slot);
+        }
+    }
+    if is_key_pressed(KeyCode::Tab) {
+        // Next living teammate after the active one.
+        let pos = team.members.iter().position(|&m| m == team.active).unwrap_or(0);
+        bs.switch_request = (1..team.members.len())
+            .map(|k| (pos + k) % team.members.len())
+            .find(|&slot| bs.battle.fighter(team.members[slot]).fighter.alive());
+    }
+}
+
 fn new_battle(data: &Arc<GameData>, cfg: &AppConfig, ai: &str, seed: u64, autoplay: bool) -> BattleScreen {
     let profile = data.ai_profile(ai).expect("ai profile").clone();
-    let battle = Battle::new(data.clone(), &[cfg.player, cfg.enemy], seed);
-    let n = battle.fighter_count();
+    let n = data.creatures.len();
+    let rosters = [
+        fill_roster(cfg.player.clone(), cfg.team_size, n, 0),
+        fill_roster(cfg.enemy.clone(), cfg.team_size, n, 3),
+    ];
+    let battle = Battle::with_rosters(data.clone(), &rosters, seed);
+    let fighters = battle.fighter_count();
     BattleScreen {
         battle,
         enemy_ai: AiController::new(profile.clone(), seed.wrapping_mul(7919).wrapping_add(1)),
         autoplay: autoplay.then(|| AiController::new(profile, seed.wrapping_mul(7919).wrapping_add(2))),
         acc: 0.0,
-        fx: Fx::new(n, seed),
+        fx: Fx::new(fighters, seed),
         dash_buffer: 0.0,
+        switch_request: None,
         paused: false,
     }
 }
@@ -232,7 +307,7 @@ fn player_intent(bs: &mut BattleScreen) -> Intent {
     if let Some(ai) = &mut bs.autoplay {
         return ai.update(&bs.battle, PLAYER);
     }
-    let me = bs.battle.fighter(PLAYER);
+    let me = bs.battle.fighter(bs.battle.active(PLAYER));
     let mut dir = combat::Vec2::ZERO;
     if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) {
         dir.y -= 1.0;
@@ -262,6 +337,7 @@ fn player_intent(bs: &mut BattleScreen) -> Intent {
         aim,
         dash: bs.dash_buffer > 0.0,
         use_move,
+        switch_to: bs.switch_request,
     }
 }
 
@@ -272,8 +348,17 @@ fn step_battle(bs: &mut BattleScreen, assets: &AssetDb, feel: &Feel) {
     let p = player_intent(bs);
     let e = bs.enemy_ai.update(&bs.battle, 1);
     bs.battle.step(&[p, e]);
-    if bs.battle.events().iter().any(|ev| matches!(ev, Event::Dash { fighter } if *fighter == PLAYER)) {
-        bs.dash_buffer = 0.0;
+    let active = bs.battle.active(PLAYER);
+    for ev in bs.battle.events() {
+        match *ev {
+            Event::Dash { fighter } if fighter == active => bs.dash_buffer = 0.0,
+            Event::SentOut { team, .. } if team as usize == PLAYER => bs.switch_request = None,
+            _ => {}
+        }
+    }
+    // A request the sim refused (cooldown, mid-attack) expires instead of firing later.
+    if bs.battle.teams()[PLAYER].switch_cooldown > 0.0 {
+        bs.switch_request = None;
     }
     bs.fx.on_events(&bs.battle, assets, feel, PLAYER);
     bs.fx.emit_trails(&bs.battle, assets);
@@ -291,4 +376,17 @@ fn save_screenshot(path: &str) {
     }
     img.export_png(path);
     println!("screenshot saved: {path} ({}x{})", img.width, img.height);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fill_roster;
+
+    #[test]
+    fn rosters_fill_without_duplicates() {
+        assert_eq!(fill_roster(vec![2], 3, 6, 0), vec![2, 0, 1]);
+        assert_eq!(fill_roster(vec![0, 1, 2, 3], 3, 6, 0), vec![0, 1, 2]);
+        assert_eq!(fill_roster(vec![], 3, 6, 3), vec![3, 4, 5]);
+        assert_eq!(fill_roster(vec![5], 1, 6, 0), vec![5]);
+    }
 }

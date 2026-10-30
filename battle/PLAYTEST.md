@@ -27,7 +27,14 @@ fine. "Too floaty", "Spark feels useless", "Hard AI is unfair" are all useful.
 - [ ] Do type matchups feel too strong, too weak, or invisible? (orange numbers = super effective)
 - [ ] Fight length: the AI averages about 25s. Does that feel right with you playing?
 
-## 5. Anything broken
+## 5. New in milestone 2
+- [ ] Look: do the sprites, arena and HUD feel like the handheld games you had in mind? What's off?
+- [ ] Status effects: are burn, paralysis and sleep noticeable? Is sleep (2s) too punishing?
+- [ ] 3v3: is switching (Tab, Z/X/C) easy to use mid-fight? Is a 3s cooldown right?
+- [ ] 3v3 fights run about 80s against the AI. Too long?
+- [ ] Do the "Ember!" / "Go, Tidepup!" callouts help, or are they noise?
+
+## 6. Anything broken
 - [ ] Crashes, stuck creatures, attacks that hit through pillars when they shouldn't, etc.
 
 Quick reference: **Esc/P** pause (R restart, Enter select, X quit) · **R** rematch on the result screen.

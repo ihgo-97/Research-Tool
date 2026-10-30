@@ -19,6 +19,8 @@ pub struct Intent {
     pub dash: bool,
     /// Move slot (0-3) to use, if any.
     pub use_move: Option<usize>,
+    /// Roster slot to swap in (team battles).
+    pub switch_to: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -87,6 +89,8 @@ pub struct Fighter {
     pub action: Action,
     pub facing: Vec2,
     pub status: Option<ActiveStatus>,
+    /// Off the field (team battles): not simulated, drawn or targetable.
+    pub benched: bool,
     pub stats: FighterStats,
 }
 
@@ -94,6 +98,24 @@ impl Fighter {
     pub fn alive(&self) -> bool {
         self.action != Action::Fainted
     }
+
+    /// On the field and able to fight.
+    pub fn active(&self) -> bool {
+        self.alive() && !self.benched
+    }
+}
+
+/// One side of a battle: its roster and who is currently out.
+#[derive(Debug, Clone)]
+pub struct Team {
+    /// Fighter indices, in roster order.
+    pub members: Vec<usize>,
+    /// Fighter index currently on the field.
+    pub active: usize,
+    pub switch_cooldown: f32,
+    /// Counts down after the active fighter faints, then the next is sent out.
+    pub send_out_in: Option<f32>,
+    pub switches: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +166,8 @@ pub enum Event {
     Dodged { fighter: usize, pos: Vec2 },
     Dash { fighter: usize },
     Fainted { fighter: usize },
+    /// `from` was recalled (or fainted) and `to` sent out for `team`.
+    SentOut { team: u8, from: usize, to: usize, voluntary: bool },
     StatusApplied { fighter: usize, status: StatusId },
     /// `broken`: ended early by taking a hit (e.g. waking from sleep).
     StatusEnded { fighter: usize, status: StatusId, broken: bool },
@@ -196,6 +220,7 @@ pub struct Battle {
     pub data: Arc<GameData>,
     world: World,
     fighters: Vec<Entity>,
+    teams: Vec<Team>,
     tick: u64,
     rng: Rng,
     events: Vec<Event>,
@@ -203,50 +228,81 @@ pub struct Battle {
 }
 
 impl Battle {
-    /// 1v1 (or free-for-all): fighter `i` is on team `i`.
+    /// 1v1 (or free-for-all): one creature per side.
     pub fn new(data: Arc<GameData>, creatures: &[CreatureId], seed: u64) -> Self {
-        let teams: Vec<u8> = (0..creatures.len()).map(|i| i as u8).collect();
-        Self::with_teams(data, creatures, &teams, seed)
+        let rosters: Vec<Vec<CreatureId>> = creatures.iter().map(|&c| vec![c]).collect();
+        Self::with_rosters(data, &rosters, seed)
     }
 
-    pub fn with_teams(data: Arc<GameData>, creatures: &[CreatureId], teams: &[u8], seed: u64) -> Self {
-        assert_eq!(creatures.len(), teams.len());
+    /// Team battle: side `i` fields `rosters[i][0]` first; the rest wait on the bench.
+    pub fn with_rosters(data: Arc<GameData>, rosters: &[Vec<CreatureId>], seed: u64) -> Self {
+        assert!(rosters.iter().all(|r| !r.is_empty()), "every side needs a creature");
         let mut world = World::new();
         let mut fighters = Vec::new();
+        let mut teams = Vec::new();
         let center = Vec2::new(data.arena.width * 0.5, data.arena.height * 0.5);
-        for (i, (&cid, &team)) in creatures.iter().zip(teams).enumerate() {
-            let c = &data.creatures[cid];
-            let pos = data.arena.spawns[i % data.arena.spawns.len()];
-            let body = Body {
-                pos,
-                radius: c.radius,
-                ..Default::default()
-            };
-            let fighter = Fighter {
-                index: i,
-                team,
-                creature: cid,
-                hp: c.hp,
-                max_hp: c.hp,
-                slots: c.moves.iter().map(|&mv| MoveSlot { mv, remaining: 0.0 }).collect(),
-                dash_cooldown: 0.0,
-                iframes: 0.0,
-                action: Action::Idle,
-                facing: (center - pos).normalize_or_zero(),
-                status: None,
-                stats: FighterStats::default(),
-            };
-            fighters.push(world.spawn((body, fighter)));
+        for (side, roster) in rosters.iter().enumerate() {
+            let pos = data.arena.spawns[side % data.arena.spawns.len()];
+            let mut members = Vec::new();
+            for (k, &cid) in roster.iter().enumerate() {
+                let c = &data.creatures[cid];
+                let index = fighters.len();
+                let body = Body {
+                    pos,
+                    radius: c.radius,
+                    ..Default::default()
+                };
+                let fighter = Fighter {
+                    index,
+                    team: side as u8,
+                    creature: cid,
+                    hp: c.hp,
+                    max_hp: c.hp,
+                    slots: c.moves.iter().map(|&mv| MoveSlot { mv, remaining: 0.0 }).collect(),
+                    dash_cooldown: 0.0,
+                    iframes: 0.0,
+                    action: Action::Idle,
+                    facing: (center - pos).normalize_or_zero(),
+                    status: None,
+                    benched: k > 0,
+                    stats: FighterStats::default(),
+                };
+                fighters.push(world.spawn((body, fighter)));
+                members.push(index);
+            }
+            teams.push(Team {
+                active: members[0],
+                members,
+                switch_cooldown: 0.0,
+                send_out_in: None,
+                switches: 0,
+            });
         }
         Self {
             data,
             world,
             fighters,
+            teams,
             tick: 0,
             rng: Rng::new(seed),
             events: Vec::new(),
             outcome: None,
         }
+    }
+
+    pub fn teams(&self) -> &[Team] {
+        &self.teams
+    }
+
+    /// Battle length limit: `max_battle_seconds` per creature in the largest roster.
+    pub fn time_limit(&self) -> f32 {
+        let size = self.teams.iter().map(|t| t.members.len()).max().unwrap_or(1);
+        self.data.balance.max_battle_seconds * size as f32
+    }
+
+    /// Fighter index currently on the field for `side`.
+    pub fn active(&self, side: usize) -> usize {
+        self.teams[side].active
     }
 
     pub fn world(&self) -> &World {
@@ -308,6 +364,7 @@ impl Battle {
         let data = self.data.clone();
         let dt = data.dt();
 
+        self.update_teams(intents, dt);
         let launches = self.update_fighters(intents, dt);
         self.integrate_fighters(dt);
         for l in launches {
@@ -320,6 +377,98 @@ impl Battle {
         self.check_outcome();
     }
 
+    /// Swap the active fighter of `side` for fighter `to` at the same spot.
+    fn swap_in(&mut self, side: usize, to: usize, voluntary: bool) {
+        let data = self.data.clone();
+        let from = self.teams[side].active;
+        let (pos, facing) = {
+            let b = *self.world.get::<&Body>(self.fighters[from]).expect("body");
+            let f = self.world.get::<&Fighter>(self.fighters[from]).expect("fighter");
+            let pos = if voluntary { b.pos } else { data.arena.spawns[side % data.arena.spawns.len()] };
+            (pos, f.facing)
+        };
+        if let Ok(q) = self.world.query_one_mut::<(&mut Body, &mut Fighter)>(self.fighters[from]) {
+            q.0.vel = Vec2::ZERO;
+            q.0.knock = Vec2::ZERO;
+            q.1.benched = true;
+            if q.1.alive() {
+                q.1.action = Action::Idle;
+            }
+        }
+        if let Ok(q) = self.world.query_one_mut::<(&mut Body, &mut Fighter)>(self.fighters[to]) {
+            q.0.pos = pos;
+            q.0.vel = Vec2::ZERO;
+            q.0.knock = Vec2::ZERO;
+            resolve_static(&mut q.0.pos, q.0.radius, &data);
+            q.1.benched = false;
+            q.1.facing = facing;
+            q.1.action = Action::Idle;
+            q.1.iframes = data.balance.switching.swap_iframes;
+        }
+        let t = &mut self.teams[side];
+        t.active = to;
+        t.send_out_in = None;
+        if voluntary {
+            t.switch_cooldown = data.balance.switching.cooldown;
+            t.switches += 1;
+        }
+        self.events.push(Event::SentOut {
+            team: side as u8,
+            from,
+            to,
+            voluntary,
+        });
+    }
+
+    fn update_teams(&mut self, intents: &[Intent], dt: f32) {
+        let sw = self.data.balance.switching.clone();
+        for side in 0..self.teams.len() {
+            let t = &mut self.teams[side];
+            t.switch_cooldown = (t.switch_cooldown - dt).max(0.0);
+            let active = t.active;
+            let (active_alive, can_act) = {
+                let f = self.world.get::<&Fighter>(self.fighters[active]).expect("fighter");
+                let stunned = f.status.is_some_and(|s| self.data.statuses[s.status].stun);
+                (f.alive(), matches!(f.action, Action::Idle | Action::Recovery { .. }) && !stunned)
+            };
+            let next_alive = |members: &[usize], world: &World, fighters: &[Entity]| {
+                members
+                    .iter()
+                    .copied()
+                    .find(|&m| m != active && world.get::<&Fighter>(fighters[m]).map(|f| f.alive()).unwrap_or(false))
+            };
+            if !active_alive {
+                // Forced send-out after the faint delay.
+                let t = &mut self.teams[side];
+                match t.send_out_in {
+                    None => t.send_out_in = Some(sw.faint_delay),
+                    Some(left) if left - dt > 0.0 => t.send_out_in = Some(left - dt),
+                    Some(_) => {
+                        if let Some(n) = next_alive(&t.members.clone(), &self.world, &self.fighters) {
+                            self.swap_in(side, n, false);
+                        } else {
+                            t.send_out_in = None;
+                        }
+                    }
+                }
+                continue;
+            }
+            // Voluntary switch.
+            let Some(slot) = intents.get(side).and_then(|i| i.switch_to) else { continue };
+            let t = &self.teams[side];
+            let Some(&to) = t.members.get(slot) else { continue };
+            let target_ok = to != active
+                && self
+                    .world
+                    .get::<&Fighter>(self.fighters[to])
+                    .map(|f| f.alive())
+                    .unwrap_or(false);
+            if target_ok && can_act && t.switch_cooldown <= 0.0 {
+                self.swap_in(side, to, true);
+            }
+        }
+    }
+
     fn update_fighters(&mut self, intents: &[Intent], dt: f32) -> Vec<Launch> {
         let data = &*self.data;
         let bal = &data.balance;
@@ -327,9 +476,21 @@ impl Battle {
         let mut events = Vec::new();
         let mut dot_credit: Vec<(usize, f32)> = Vec::new();
         for (i, &e) in self.fighters.iter().enumerate() {
-            let intent = intents.get(i).copied().unwrap_or_default();
             let mut q = self.world.query_one::<(&mut Body, &mut Fighter)>(e);
             let (body, f) = q.get().expect("fighter components");
+            let side = f.team as usize;
+            let intent = if self.teams[side].active == i {
+                intents.get(side).copied().unwrap_or_default()
+            } else {
+                Intent::default()
+            };
+            if f.benched {
+                // Benched creatures recover their cooldowns, nothing else.
+                for s in &mut f.slots {
+                    s.tick(dt);
+                }
+                continue;
+            }
             if !f.alive() {
                 body.vel = Vec2::ZERO;
                 continue;
@@ -485,7 +646,7 @@ impl Battle {
         for a in 0..n {
             for b in (a + 1)..n {
                 let (ea, eb) = (self.fighters[a], self.fighters[b]);
-                let alive = |e: Entity| self.world.get::<&Fighter>(e).map(|f| f.alive()).unwrap_or(false);
+                let alive = |e: Entity| self.world.get::<&Fighter>(e).map(|f| f.active()).unwrap_or(false);
                 if !alive(ea) || !alive(eb) {
                     continue;
                 }
@@ -618,7 +779,7 @@ impl Battle {
             .filter_map(|&e| {
                 let b = self.world.get::<&Body>(e).ok()?;
                 let f = self.world.get::<&Fighter>(e).ok()?;
-                f.alive().then_some((f.index, f.team, b.pos, b.radius, f.iframes > 0.0))
+                f.active().then_some((f.index, f.team, b.pos, b.radius, f.iframes > 0.0))
             })
             .collect()
     }
@@ -678,7 +839,7 @@ impl Battle {
             .iter()
             .map(|&e| {
                 let b = self.world.get::<&Body>(e).map(|b| b.pos).unwrap_or_default();
-                let alive = self.world.get::<&Fighter>(e).map(|f| f.alive()).unwrap_or(false);
+                let alive = self.world.get::<&Fighter>(e).map(|f| f.active()).unwrap_or(false);
                 (b, alive)
             })
             .collect();
@@ -822,9 +983,10 @@ impl Battle {
             if f.alive() && !alive_teams.contains(&f.team) {
                 alive_teams.push(f.team);
             }
+            let share = f.hp / f.max_hp / self.teams[f.team as usize].members.len() as f32;
             match hp_frac.iter_mut().find(|(t, _)| *t == f.team) {
-                Some((_, v)) => *v += f.hp / f.max_hp,
-                None => hp_frac.push((f.team, f.hp / f.max_hp)),
+                Some((_, v)) => *v += share,
+                None => hp_frac.push((f.team, share)),
             }
         }
         if alive_teams.len() <= 1 {
@@ -832,7 +994,7 @@ impl Battle {
                 Some(&team) => Outcome::Victory { team },
                 None => Outcome::Timeout { team: None }, // simultaneous KO
             });
-        } else if self.time() >= self.data.balance.max_battle_seconds {
+        } else if self.time() >= self.time_limit() {
             hp_frac.sort_by(|a, b| b.1.total_cmp(&a.1));
             let team = if (hp_frac[0].1 - hp_frac[1].1).abs() < 1e-4 {
                 None

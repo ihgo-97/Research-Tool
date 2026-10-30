@@ -10,7 +10,17 @@ never decides a fight on its own.
 ```sh
 cargo run --release                     # play: creature select -> battle
 cargo run --release -- --player pebblor --enemy galeon --ai hard
+cargo run --release -- --player emberkit,sproutle,voltfin --enemy tidepup,pebblor,galeon   # 3v3
 ```
+
+Formats: **1v1**, or **3v3** team battles (choose on the select screen). In 3v3 one
+creature per side is on the field. **Tab** switches to the next teammate and **Z/X/C**
+switch to roster slots 1-3 (3s cooldown; the incoming creature gets brief
+invulnerability). When a creature faints, the next one comes out automatically.
+
+Status effects (defined in `balance.ron`, applied by moves): **burn** (damage over
+time, weaker attacks), **paralysis** (slower movement and windups), **sleep** (can't act
+until hit or it wears off).
 
 Controls: **WASD** move · **mouse** aim · **LMB / RMB / Q / E** (or **1-4**) moves ·
 **Space / Shift** dash · **Esc / P** pause (R restart, Enter select, X quit).
@@ -28,6 +38,7 @@ scripts/verify.sh                       # build + clippy -D warnings + tests + h
 cargo run --release -- --headless 50    # 50 AI-vs-AI battles per ordered matchup (36 pairs)
 cargo run --release -- --headless 200 --matchup sproutle emberkit --ai hard --ai-b normal
 cargo run --release -- --headless 50 --moves   # + per-move use/hit-rate/damage table
+cargo run --release -- --headless 20 --team-size 3   # random 3v3 teams: team win% per creature, switches
 scripts/screenshot.sh 600 out/frame.png --player voltfin --enemy tidepup --seed 5
 scripts/screenshot.sh 2 out/select.png --scene select
 scripts/screenshot.sh 2 out/result.png --scene result

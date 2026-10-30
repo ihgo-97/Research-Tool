@@ -217,14 +217,19 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
 
     // Fighters and rocks, back to front.
     let views: Vec<FighterView> = (0..battle.fighter_count()).map(|i| battle.fighter(i)).collect();
-    let mut items: Vec<(f32, Drawable)> = views.iter().enumerate().map(|(i, v)| (v.body.pos.y, Drawable::Fighter(i))).collect();
+    let mut items: Vec<(f32, Drawable)> = views
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| !v.fighter.benched)
+        .map(|(i, v)| (v.body.pos.y, Drawable::Fighter(i)))
+        .collect();
     items.extend(a.pillars.iter().enumerate().map(|(i, p)| (p.pos.y, Drawable::Rock(i))));
     items.sort_by(|x, y| x.0.total_cmp(&y.0));
     for (_, d) in items {
         match d {
             Drawable::Fighter(i) => {
                 let flash = fx.flash.get(i).copied().unwrap_or(0.0) > 0.0;
-                draw_fighter(data, gfx, &views[i], flash, i == player, battle.time(), shake);
+                draw_fighter(data, gfx, &views[i], flash, views[i].fighter.team as usize == player, battle.time(), shake);
             }
             Drawable::Rock(i) => {
                 let p = &a.pillars[i];
@@ -280,7 +285,7 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
         text_outlined(&f.text, s.x - w * 0.5, s.y, f.size, with_alpha(f.color, al), with_alpha(INK, al));
     }
 
-    draw_callouts(fx, player);
+    draw_callouts(battle, fx, player);
     draw_top_bar(battle, gfx, player);
     draw_bottom_hud(battle, assets, player);
 }
@@ -387,9 +392,10 @@ fn draw_fighter(data: &GameData, gfx: &Gfx, v: &FighterView, flash: bool, is_pla
     }
 }
 
-fn draw_callouts(fx: &Fx, player: usize) {
+fn draw_callouts(battle: &Battle, fx: &Fx, player: usize) {
     for (i, c) in fx.callouts.iter().enumerate() {
         let Some(c) = c else { continue };
+        let mine = battle.fighter(i).fighter.team as usize == player;
         let size = 24.0;
         let w = text_width(&c.text, size) + 28.0;
         let h = 34.0;
@@ -397,7 +403,7 @@ fn draw_callouts(fx: &Fx, player: usize) {
         let slide = (c.t / 0.12).min(1.0);
         let fade = ((CALLOUT_LIFE - c.t) / 0.25).clamp(0.0, 1.0);
         let y = ARENA_Y + 14.0;
-        let x = if i == player {
+        let x = if mine {
             ARENA_X + 12.0 - (1.0 - slide) * (w + 20.0)
         } else {
             ARENA_X + 1200.0 - 12.0 - w + (1.0 - slide) * (w + 20.0)
@@ -414,9 +420,8 @@ fn draw_top_bar(battle: &Battle, gfx: &Gfx, player: usize) {
     let data = &*battle.data;
     let assets = gfx.assets;
     draw_rectangle(0.0, 0.0, SCREEN_W, 52.0, BG);
-    let enemy = 1 - player;
-    for (side, idx) in [(0, player), (1, enemy)] {
-        let v = battle.fighter(idx);
+    for (side, team_side) in [(0, player), (1, 1 - player)] {
+        let v = battle.fighter(battle.active(team_side));
         let c = &data.creatures[v.fighter.creature];
         let (pw, ph) = (520.0, 44.0);
         let px = if side == 0 { 40.0 } else { SCREEN_W - 40.0 - pw };
@@ -455,12 +460,38 @@ fn draw_top_bar(battle: &Battle, gfx: &Gfx, player: usize) {
         }
         let tagc = if side == 0 { Color::new(0.35, 0.75, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.4, 1.0) };
         text_outlined(tag, bx + 6.0, py + 18.0, 14.0, tagc, INK);
+        // Roster orbs: creature colour, grey when fainted, ring on the active one.
+        let team = &battle.teams()[team_side];
+        if team.members.len() > 1 {
+            let ready = team.switch_cooldown <= 0.0;
+            let ox0 = if side == 0 { px + pw - 14.0 - 22.0 * (team.members.len() - 1) as f32 } else { px + 64.0 + 360.0 };
+            for (k, &m) in team.members.iter().enumerate() {
+                let f = battle.fighter(m);
+                let cx = ox0 + k as f32 * 22.0;
+                let cy = py + 14.0;
+                let col = if f.fighter.alive() {
+                    rgb(assets.creature_color(&data.creatures[f.fighter.creature].asset), 1.0)
+                } else {
+                    Color::new(0.45, 0.45, 0.5, 1.0)
+                };
+                draw_circle(cx, cy, 8.0, INK);
+                draw_circle(cx, cy, 6.5, col);
+                draw_circle(cx - 2.0, cy - 2.0, 2.0, Color::new(1.0, 1.0, 1.0, 0.7));
+                if !f.fighter.alive() {
+                    draw_line(cx - 5.0, cy - 5.0, cx + 5.0, cy + 5.0, 2.0, INK);
+                    draw_line(cx - 5.0, cy + 5.0, cx + 5.0, cy - 5.0, 2.0, INK);
+                }
+                if m == team.active {
+                    draw_circle_lines(cx, cy, 10.0, 2.0, if ready || side == 1 { tagc } else { DIM });
+                }
+            }
+        }
         let frac = (v.fighter.hp / v.fighter.max_hp).clamp(0.0, 1.0);
         hp_bar(tx, py + 27.0, 330.0, frac);
         let hp = format!("{:.0}/{:.0}", v.fighter.hp.ceil(), v.fighter.max_hp);
         draw_text(&hp, tx + 366.0, py + 38.0, 18.0, INK);
     }
-    let left = (data.balance.max_battle_seconds - battle.time()).max(0.0);
+    let left = (battle.time_limit() - battle.time()).max(0.0);
     let t = format!("{}:{:02}", (left.ceil() as u32) / 60, (left.ceil() as u32) % 60);
     let (bw, bx) = (76.0, SCREEN_W * 0.5 - 38.0);
     panel(bx, 10.0, bw, 30.0);
@@ -472,7 +503,7 @@ fn draw_top_bar(battle: &Battle, gfx: &Gfx, player: usize) {
 fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
     let data = &*battle.data;
     draw_rectangle(0.0, HUD_Y - 6.0, SCREEN_W, SCREEN_H - HUD_Y + 6.0, BG);
-    let v = battle.fighter(player);
+    let v = battle.fighter(battle.active(player));
     let active_slot = match v.fighter.action {
         Action::Windup { slot, .. } => Some(slot),
         _ => None,
@@ -518,14 +549,20 @@ fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
     draw_rectangle(x - 2.0, y - 2.0, w + 4.0, h + 4.0, INK);
     draw_rectangle(x, y, w, h, PAPER);
     text_outlined("DASH", x + 10.0, y + 26.0, 22.0, TEXT, INK);
-    draw_text("SPACE/SHIFT", x + 10.0, y + 66.0, 14.0, INK);
+    draw_text("SPACE/SHIFT", x + 10.0, y + 44.0, 14.0, INK);
+    let team = &battle.teams()[player];
+    if team.members.len() > 1 {
+        let col = if team.switch_cooldown > 0.0 { DIM } else { INK };
+        draw_text("SWITCH", x + 10.0, y + 60.0, 14.0, col);
+        draw_text("TAB / Z X C", x + 10.0, y + 73.0, 13.0, col);
+    }
     if v.fighter.dash_cooldown > 0.0 {
         let frac = (v.fighter.dash_cooldown / data.balance.dash.cooldown).clamp(0.0, 1.0);
         draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.05, 0.05, 0.1, 0.55));
     }
 
     // Opponent cooldowns (compact) so their windows are readable.
-    let e = battle.fighter(1 - player);
+    let e = battle.fighter(battle.active(1 - player));
     text_outlined("FOE MOVES", 920.0, HUD_Y + 16.0, 16.0, DIM, INK);
     for (i, s) in e.fighter.slots.iter().enumerate() {
         let mv = &data.moves[s.mv];
@@ -555,8 +592,8 @@ pub fn draw_result(battle: &Battle, assets: &AssetDb, player: usize) {
     let Some(outcome) = battle.outcome() else { return };
     let data = &*battle.data;
     draw_rectangle(0.0, 0.0, SCREEN_W, SCREEN_H, Color::new(0.0, 0.0, 0.05, 0.6));
-    let me = battle.fighter(player);
-    let foe = battle.fighter(1 - player);
+    let me = battle.fighter(battle.active(player));
+    let foe = battle.fighter(battle.active(1 - player));
     let (title, col) = match outcome.winner() {
         Some(t) if t == me.fighter.team => ("VICTORY!", Color::new(1.0, 0.85, 0.3, 1.0)),
         Some(_) => ("DEFEAT", Color::new(0.95, 0.35, 0.3, 1.0)),
@@ -568,7 +605,8 @@ pub fn draw_result(battle: &Battle, assets: &AssetDb, player: usize) {
     };
     text_centered(title, SCREEN_W * 0.5, 250.0, 96.0, col);
     text_centered(sub, SCREEN_W * 0.5, 292.0, 24.0, DIM);
-    panel(250.0, 330.0, 780.0, 110.0);
+    let team_mode = battle.teams()[player].members.len() > 1;
+    panel(250.0, 330.0, 780.0, if team_mode { 136.0 } else { 110.0 });
     let line = |label: &str, v: &FighterView, y: f32| {
         let c = &data.creatures[v.fighter.creature];
         let s = &v.fighter.stats;
@@ -586,62 +624,100 @@ pub fn draw_result(battle: &Battle, assets: &AssetDb, player: usize) {
     };
     line("You", &me, 364.0);
     line("Foe", &foe, 396.0);
+    let teams = battle.teams();
+    if teams[player].members.len() > 1 {
+        let left = |side: usize| teams[side].members.iter().filter(|&&m| battle.fighter(m).fighter.alive()).count();
+        let t = format!(
+            "team left: you {}/{}   foe {}/{}   switches: you {}  foe {}",
+            left(player),
+            teams[player].members.len(),
+            left(1 - player),
+            teams[1 - player].members.len(),
+            teams[player].switches,
+            teams[1 - player].switches
+        );
+        draw_text(&t, SCREEN_W * 0.5 - text_width(&t, 18.0) * 0.5, 452.0, 18.0, INK);
+    }
     let tt = format!("time {:.1}s", battle.time());
     draw_text(&tt, SCREEN_W * 0.5 - text_width(&tt, 18.0) * 0.5, 426.0, 18.0, Color::new(0.4, 0.42, 0.5, 1.0));
-    text_centered("R  rematch      ENTER  creature select      ESC  quit", SCREEN_W * 0.5, 500.0, 24.0, TEXT);
+    text_centered("R  rematch      ENTER  creature select      ESC  quit", SCREEN_W * 0.5, 510.0, 24.0, TEXT);
+}
+
+/// One editable row of the select screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectRow {
+    Format,
+    Player(usize),
+    Enemy(usize),
+    Ai,
 }
 
 pub struct SelectView<'a> {
+    pub rows: &'a [SelectRow],
     pub focus: usize,
-    pub player: usize,
-    pub enemy: usize,
+    pub team_size: usize,
+    pub player: &'a [usize],
+    pub enemy: &'a [usize],
     pub ai: &'a str,
 }
 
 pub fn draw_select(data: &GameData, gfx: &Gfx, v: &SelectView) {
     let assets = gfx.assets;
     clear_background(BG);
-    text_centered("REAL-TIME ARENA", SCREEN_W * 0.5, 70.0, 56.0, Color::new(1.0, 0.85, 0.3, 1.0));
-    text_centered("UP/DOWN choose row   LEFT/RIGHT change   ENTER fight   ESC quit", SCREEN_W * 0.5, 104.0, 20.0, DIM);
+    text_centered("REAL-TIME ARENA", SCREEN_W * 0.5, 56.0, 52.0, Color::new(1.0, 0.85, 0.3, 1.0));
+    text_centered("UP/DOWN choose row   LEFT/RIGHT change   ENTER fight   ESC quit", SCREEN_W * 0.5, 86.0, 18.0, DIM);
 
-    let rows = [
-        ("You", assets.creature_name(&data.creatures[v.player].asset).to_string()),
-        ("Opponent", assets.creature_name(&data.creatures[v.enemy].asset).to_string()),
-        ("AI", v.ai.to_string()),
-    ];
-    for (i, (label, value)) in rows.iter().enumerate() {
-        let y = 160.0 + i as f32 * 44.0;
+    let name = |c: usize| assets.creature_name(&data.creatures[c].asset).to_string();
+    let row_h = if v.rows.len() > 4 { 24.0 } else { 40.0 };
+    let top = 120.0;
+    for (i, row) in v.rows.iter().enumerate() {
+        let (label, value) = match *row {
+            SelectRow::Format => ("Format".to_string(), format!("{0}v{0}", v.team_size)),
+            SelectRow::Player(k) if v.team_size == 1 => ("You".to_string(), name(v.player[k])),
+            SelectRow::Player(k) => (format!("You #{}", k + 1), name(v.player[k])),
+            SelectRow::Enemy(k) if v.team_size == 1 => ("Opponent".to_string(), name(v.enemy[k])),
+            SelectRow::Enemy(k) => (format!("Foe #{}", k + 1), name(v.enemy[k])),
+            SelectRow::Ai => ("AI".to_string(), v.ai.to_string()),
+        };
+        let y = top + i as f32 * row_h;
         let focused = i == v.focus;
+        let size = if row_h < 30.0 { 22.0 } else { 26.0 };
         if focused {
-            panel(380.0, y - 28.0, 520.0, 36.0);
+            panel(380.0, y - row_h * 0.72, 520.0, row_h - 4.0);
         }
         let ink = if focused { INK } else { DIM };
-        draw_text(label, 400.0, y, 26.0, ink);
+        draw_text(&label, 400.0, y, size, ink);
         let t = format!("<  {value}  >");
-        let w = text_width(&t, 28.0);
+        let w = text_width(&t, size);
         if focused {
-            draw_text(&t, 720.0 - w * 0.5, y, 28.0, Color::new(0.85, 0.35, 0.15, 1.0));
+            draw_text(&t, 720.0 - w * 0.5, y, size, Color::new(0.85, 0.35, 0.15, 1.0));
         } else {
-            text_outlined(&t, 720.0 - w * 0.5, y, 28.0, TEXT, INK);
+            text_outlined(&t, 720.0 - w * 0.5, y, size, TEXT, INK);
         }
     }
 
-    draw_creature_card(data, gfx, v.player, v.enemy, 60.0, 310.0);
-    draw_creature_card(data, gfx, v.enemy, v.player, 660.0, 310.0);
-    text_centered(
-        "WASD move   mouse aim   LMB/RMB/Q/E (or 1-4) moves   SPACE/SHIFT dash (brief invulnerability)",
-        SCREEN_W * 0.5,
-        SCREEN_H - 24.0,
-        20.0,
-        DIM,
-    );
+    // Cards show the slot being edited on each side (leads otherwise).
+    let (pk, ek) = match v.rows.get(v.focus) {
+        Some(SelectRow::Player(k)) => (*k, 0),
+        Some(SelectRow::Enemy(k)) => (0, *k),
+        _ => (0, 0),
+    };
+    let card_y = top + v.rows.len() as f32 * row_h + 4.0;
+    draw_creature_card(data, gfx, v.player[pk], v.enemy[ek], 60.0, card_y);
+    draw_creature_card(data, gfx, v.enemy[ek], v.player[pk], 660.0, card_y);
+    let hint = if v.team_size > 1 {
+        "WASD move  mouse aim  LMB/RMB/Q/E moves  SPACE dash  TAB or Z/X/C switch creature"
+    } else {
+        "WASD move   mouse aim   LMB/RMB/Q/E (or 1-4) moves   SPACE/SHIFT dash (brief invulnerability)"
+    };
+    text_centered(hint, SCREEN_W * 0.5, SCREEN_H - 14.0, 18.0, DIM);
 }
 
 fn draw_creature_card(data: &GameData, gfx: &Gfx, id: usize, vs: usize, x: f32, y: f32) {
     let assets = gfx.assets;
     let c = &data.creatures[id];
     let other = &data.creatures[vs];
-    let (w, h) = (560.0, 410.0);
+    let (w, h) = (560.0, 400.0);
     panel(x, y, w, h);
     let col = rgb(assets.creature_color(&c.asset), 1.0);
     // Sprite on a little pedestal.
