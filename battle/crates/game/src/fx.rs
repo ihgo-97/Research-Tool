@@ -43,8 +43,9 @@ pub struct Fx {
     pub shake: f32,
     /// Remaining freeze time; the battle does not advance while > 0.
     pub hitstop: f32,
-    /// Sound cue keys (see `sounds` in assets.ron) raised since last drained.
-    pub cues: Vec<&'static str>,
+    /// Sound cues raised since last drained: an event key from `sounds` in
+    /// assets.ron, or `move:<asset id>` for a move's own sound.
+    pub cues: Vec<String>,
     rng: Rng,
 }
 
@@ -90,7 +91,11 @@ impl Fx {
         let data = &*battle.data;
         for ev in battle.events() {
             match *ev {
-                Event::MoveLaunched { .. } => self.cues.push("launch"),
+                Event::MoveLaunched { mv, .. } => {
+                    let asset = &data.moves[mv].asset;
+                    let has_own = assets.moves.get(asset).is_some_and(|m| m.sound.is_some());
+                    self.cues.push(if has_own { format!("move:{asset}") } else { "launch".into() });
+                }
                 Event::Hit {
                     target,
                     mv,
@@ -123,7 +128,7 @@ impl Fx {
                     self.hitstop = self.hitstop.max(feel.hitstop_for(damage));
                     let tc = rgb(assets.type_color(&data.types.names[data.moves[mv].element]), 1.0);
                     self.burst(pos, feel.particles.hit, (80.0, 260.0), 0.35, 4.0, tc);
-                    self.cues.push(if strong { "hit_strong" } else { "hit" });
+                    self.cues.push(if strong { "hit_strong" } else { "hit" }.into());
                 }
                 Event::Dodged { pos, .. } => {
                     self.floaters.push(Floater {
@@ -134,13 +139,13 @@ impl Fx {
                         t: 0.0,
                     });
                     self.burst(pos, feel.particles.dodge, (120.0, 140.0), 0.3, 3.0, Color::new(0.6, 0.9, 1.0, 1.0));
-                    self.cues.push("dodge");
+                    self.cues.push("dodge".into());
                 }
                 Event::Dash { fighter } => {
                     let v = battle.fighter(fighter);
                     let feet = v.body.pos + Vec2::new(0.0, v.body.radius * 0.6);
                     self.burst(feet, feel.particles.dash, (20.0, 70.0), 0.4, 5.0, Color::new(0.75, 0.75, 0.7, 0.6));
-                    self.cues.push("dash");
+                    self.cues.push("dash".into());
                 }
                 Event::Fainted { fighter } => {
                     let v = battle.fighter(fighter);
@@ -154,7 +159,7 @@ impl Fx {
                     });
                     self.burst(v.body.pos, feel.particles.ko, (60.0, 320.0), 0.8, 6.0, c);
                     self.shake = feel.shake.ko;
-                    self.cues.push("ko");
+                    self.cues.push("ko".into());
                 }
                 Event::SentOut { from, to, voluntary, .. } => {
                     let v = battle.fighter(to);
@@ -172,7 +177,7 @@ impl Fx {
                     }
                     self.burst(v.body.pos, 24, (80.0, 220.0), 0.45, 4.0, Color::new(1.0, 1.0, 1.0, 1.0));
                     self.burst(v.body.pos, 12, (40.0, 120.0), 0.6, 5.0, col);
-                    self.cues.push(if voluntary { "switch" } else { "send_out" });
+                    self.cues.push(if voluntary { "switch" } else { "send_out" }.into());
                 }
                 Event::StatusApplied { fighter, status } => {
                     let (_, text, col) = assets.status(&data.statuses[status].id);
@@ -185,7 +190,7 @@ impl Fx {
                         t: 0.0,
                     });
                     self.burst(pos, 14, (60.0, 160.0), 0.5, 4.0, rgb(col, 1.0));
-                    self.cues.push("status");
+                    self.cues.push("status".into());
                 }
                 Event::StatusEnded { fighter, status, broken } => {
                     if broken {

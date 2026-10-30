@@ -47,6 +47,9 @@ third-party input). The SDF round-cone and ellipsoid distance functions follow
 the formulas Inigo Quilez publishes (iquilezles.org/articles/distfunctions):
 they are math, re-implemented, not copied code. The creature designs are original.
 
+`assets/sfx/*.wav` are original sound effects synthesised by
+`crates/game/src/bin/gen_sfx.rs` (oscillators, noise, envelopes); no samples.
+
 CC0 asset packs are approved (2026-10-30) for future sprites and effects. Each one
 used will be listed here with its source URL and license.
 

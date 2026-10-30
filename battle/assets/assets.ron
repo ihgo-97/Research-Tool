@@ -24,18 +24,19 @@
         "snowfield": (ground: "arena/snow.png", obstacle: "arena/rocks_snow.png", obstacle_radius: 34.0, snow: true, border: (120, 136, 168)),
         "meadow":    (ground: "arena/grass.png", obstacle: "arena/rocks.png", obstacle_radius: 34.0, snow: false, border: (70, 104, 60)),
     },
-    // Sound ids played on battle events (None = silent). Played only when built
-    // with `--features audio`.
+    // Sounds played on battle events (None = silent); moves have their own
+    // `sound` (played on launch instead of "launch"). Only with `--features audio`.
+    // The current sounds are synthesised placeholders: `cargo run --release --bin gen_sfx`.
     sounds: {
-        "launch": None,
-        "hit": None,
-        "hit_strong": None,
-        "dodge": None,
-        "dash": None,
-        "ko": None,
-        "status": None,
-        "switch": None,
-        "send_out": None,
+        "launch": Some("sfx/launch.wav"),
+        "hit": Some("sfx/hit.wav"),
+        "hit_strong": Some("sfx/hit_strong.wav"),
+        "dodge": Some("sfx/dodge.wav"),
+        "dash": Some("sfx/dash.wav"),
+        "ko": Some("sfx/ko.wav"),
+        "status": Some("sfx/status.wav"),
+        "switch": Some("sfx/switch.wav"),
+        "send_out": Some("sfx/send_out.wav"),
     },
     // Status display: short HUD badge, pop-up text when inflicted, colour.
     statuses: {
@@ -60,23 +61,24 @@
         "pebblor":  (name: "Pebblor",  color: (150, 128, 96), sprite: Some("sprites/pebblor.png")),
         "galeon":   (name: "Galeon",   color: (130, 196, 206), sprite: Some("sprites/galeon.png")),
     },
-    // `vfx` picks the effect drawn for the move (see crates/game/src/vfx.rs).
+    // `vfx` picks the effect drawn for the move (see crates/game/src/vfx.rs);
+    // `sound` plays when it launches.
     moves: {
-        "tackle":       (name: "Tackle", vfx: "impact"),
-        "swift_star":   (name: "Swift Star", vfx: "star"),
-        "ember":        (name: "Ember", vfx: "flame"),
-        "fire_fang":    (name: "Fire Fang", vfx: "bite"),
-        "flame_burst":  (name: "Flame Burst", vfx: "flame_ring"),
-        "water_jet":    (name: "Water Jet", vfx: "jet"),
-        "tidal_ring":   (name: "Tidal Ring", vfx: "splash"),
-        "seed_spray":   (name: "Seed Spray", vfx: "seed"),
-        "vine_lash":    (name: "Vine Lash", vfx: "whip"),
-        "spore_burst":  (name: "Spore Burst", vfx: "spores"),
-        "spark":        (name: "Spark", vfx: "bolt"),
-        "thunder_drop": (name: "Thunder Drop", vfx: "lightning"),
-        "rock_throw":   (name: "Rock Throw", vfx: "boulder"),
-        "quake":        (name: "Quake", vfx: "quake"),
-        "gust":         (name: "Gust", vfx: "gust"),
-        "air_slash":    (name: "Air Slash", vfx: "slash"),
+        "tackle":       (name: "Tackle", vfx: "impact", sound: Some("sfx/normal.wav")),
+        "swift_star":   (name: "Swift Star", vfx: "star", sound: Some("sfx/normal.wav")),
+        "ember":        (name: "Ember", vfx: "flame", sound: Some("sfx/fire.wav")),
+        "fire_fang":    (name: "Fire Fang", vfx: "bite", sound: Some("sfx/fire.wav")),
+        "flame_burst":  (name: "Flame Burst", vfx: "flame_ring", sound: Some("sfx/fire.wav")),
+        "water_jet":    (name: "Water Jet", vfx: "jet", sound: Some("sfx/water.wav")),
+        "tidal_ring":   (name: "Tidal Ring", vfx: "splash", sound: Some("sfx/water.wav")),
+        "seed_spray":   (name: "Seed Spray", vfx: "seed", sound: Some("sfx/grass.wav")),
+        "vine_lash":    (name: "Vine Lash", vfx: "whip", sound: Some("sfx/grass.wav")),
+        "spore_burst":  (name: "Spore Burst", vfx: "spores", sound: Some("sfx/grass.wav")),
+        "spark":        (name: "Spark", vfx: "bolt", sound: Some("sfx/electric.wav")),
+        "thunder_drop": (name: "Thunder Drop", vfx: "lightning", sound: Some("sfx/electric.wav")),
+        "rock_throw":   (name: "Rock Throw", vfx: "boulder", sound: Some("sfx/rock.wav")),
+        "quake":        (name: "Quake", vfx: "quake", sound: Some("sfx/rock.wav")),
+        "gust":         (name: "Gust", vfx: "gust", sound: Some("sfx/wind.wav")),
+        "air_slash":    (name: "Air Slash", vfx: "slash", sound: Some("sfx/wind.wav")),
     },
 )

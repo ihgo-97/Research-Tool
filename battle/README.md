@@ -28,8 +28,10 @@ On the result screen: **R** rematch, **Enter** select, **Esc** quit.
 
 What to look for when playtesting: see [PLAYTEST.md](PLAYTEST.md).
 
-Sound: `cargo run --release --features audio` (Linux needs `libasound2-dev`). Every
-sound slot in `assets/assets.ron` is empty for now, so it's silent until sounds are added.
+Sound: `cargo run --release --features audio` (Linux needs `libasound2-dev`). The
+sounds are original retro-style effects synthesised by `cargo run --release --bin gen_sfx`
+into `assets/sfx/`. Event sounds and per-move sounds are mapped in `assets/assets.ron`.
+Without a sound device the game still runs (it logs an audio error).
 
 ## Verify from the terminal
 
@@ -42,6 +44,7 @@ cargo run --release -- --headless 20 --team-size 3   # random 3v3 teams: team wi
 scripts/screenshot.sh 600 out/frame.png --player voltfin --enemy tidepup --seed 5
 scripts/screenshot.sh 2 out/select.png --scene select
 scripts/screenshot.sh 2 out/result.png --scene result
+scripts/screenshot.sh 2 out/vfx.png --scene vfx       # gallery of every move's effect
 ```
 
 `--headless` prints crashes (each battle is isolated with `catch_unwind`), KO/timeout counts,

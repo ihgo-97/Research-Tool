@@ -28,8 +28,8 @@ pub struct MoveAsset {
     /// Visual effect id (crates/game/src/vfx.rs); empty = generic.
     #[serde(default)]
     pub vfx: String,
-    /// Not played yet: audio is disabled until sounds exist.
-    #[allow(dead_code)]
+    /// Played when the move launches (audio builds only).
+    #[cfg_attr(not(feature = "audio"), allow(dead_code))]
     #[serde(default)]
     pub sound: Option<String>,
 }
@@ -167,5 +167,28 @@ impl AssetDb {
 
     pub fn move_name<'a>(&'a self, id: &'a str) -> &'a str {
         self.moves.get(id).map(|m| m.name.as_str()).unwrap_or(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn is_wav(bytes: &[u8]) -> bool {
+        bytes.len() > 44 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE"
+    }
+
+    #[test]
+    fn every_referenced_sound_exists_and_is_wav() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+        let db = AssetDb::load(&dir).expect("assets.ron");
+        let paths = db.sounds.values().flatten().chain(db.moves.values().filter_map(|m| m.sound.as_ref()));
+        let mut n = 0;
+        for rel in paths {
+            let bytes = std::fs::read(dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
+            assert!(is_wav(&bytes), "{rel} is not a WAV file");
+            n += 1;
+        }
+        assert!(n > 0);
     }
 }

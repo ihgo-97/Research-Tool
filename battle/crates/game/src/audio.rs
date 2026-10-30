@@ -18,7 +18,9 @@ impl Sfx {
     pub async fn load(dir: &Path, assets: &AssetDb) -> (Self, Vec<String>) {
         let mut sounds = HashMap::new();
         let mut warnings = Vec::new();
-        for (key, path) in &assets.sounds {
+        let move_sounds = assets.moves.iter().map(|(id, m)| (format!("move:{id}"), m.sound.clone()));
+        let all: Vec<(String, Option<String>)> = assets.sounds.clone().into_iter().chain(move_sounds).collect();
+        for (key, path) in &all {
             let Some(rel) = path else { continue };
             let full = dir.join(rel);
             match macroquad::audio::load_sound(&full.to_string_lossy()).await {
@@ -37,12 +39,12 @@ impl Sfx {
     }
 
     /// Play each queued cue once (duplicates within a frame are merged).
-    pub fn play_cues(&self, cues: &mut Vec<&'static str>) {
+    pub fn play_cues(&self, cues: &mut Vec<String>) {
         cues.sort_unstable();
         cues.dedup();
         #[cfg(feature = "audio")]
         for c in cues.iter() {
-            if let Some(s) = self.sounds.get(*c) {
+            if let Some(s) = self.sounds.get(c) {
                 macroquad::audio::play_sound_once(s);
             }
         }
