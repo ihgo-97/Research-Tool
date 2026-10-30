@@ -2,7 +2,7 @@
 //! feed one [`Intent`] per fighter per tick and read state/events back.
 
 use crate::damage::{self, AttackerStats};
-use crate::data::{CreatureId, GameData, MoveId, MoveShape, StatusId};
+use crate::data::{ArenaDef, CreatureId, GameData, MoveId, MoveShape, StatusId};
 use crate::hitbox::{self, Shape};
 use crate::math::Vec2;
 use crate::rng::Rng;
@@ -221,6 +221,7 @@ pub struct Battle {
     world: World,
     fighters: Vec<Entity>,
     teams: Vec<Team>,
+    arena: ArenaDef,
     tick: u64,
     rng: Rng,
     events: Vec<Event>,
@@ -234,15 +235,22 @@ impl Battle {
         Self::with_rosters(data, &rosters, seed)
     }
 
-    /// Team battle: side `i` fields `rosters[i][0]` first; the rest wait on the bench.
+    /// Team battle in the first arena: side `i` fields `rosters[i][0]` first;
+    /// the rest wait on the bench.
     pub fn with_rosters(data: Arc<GameData>, rosters: &[Vec<CreatureId>], seed: u64) -> Self {
+        Self::with_arena(data, rosters, 0, seed)
+    }
+
+    /// Team battle in arena `arena` (index into `GameData::arenas`).
+    pub fn with_arena(data: Arc<GameData>, rosters: &[Vec<CreatureId>], arena: usize, seed: u64) -> Self {
         assert!(rosters.iter().all(|r| !r.is_empty()), "every side needs a creature");
+        let arena = data.arenas[arena].clone();
         let mut world = World::new();
         let mut fighters = Vec::new();
         let mut teams = Vec::new();
-        let center = Vec2::new(data.arena.width * 0.5, data.arena.height * 0.5);
+        let center = Vec2::new(arena.width * 0.5, arena.height * 0.5);
         for (side, roster) in rosters.iter().enumerate() {
-            let pos = data.arena.spawns[side % data.arena.spawns.len()];
+            let pos = arena.spawns[side % arena.spawns.len()];
             let mut members = Vec::new();
             for (k, &cid) in roster.iter().enumerate() {
                 let c = &data.creatures[cid];
@@ -283,11 +291,16 @@ impl Battle {
             world,
             fighters,
             teams,
+            arena,
             tick: 0,
             rng: Rng::new(seed),
             events: Vec::new(),
             outcome: None,
         }
+    }
+
+    pub fn arena(&self) -> &ArenaDef {
+        &self.arena
     }
 
     pub fn teams(&self) -> &[Team] {
@@ -348,7 +361,6 @@ impl Battle {
     /// True if the straight line between two points is not blocked by a pillar.
     pub fn line_of_sight(&self, a: Vec2, b: Vec2, margin: f32) -> bool {
         !self
-            .data
             .arena
             .pillars
             .iter()
@@ -384,7 +396,7 @@ impl Battle {
         let (pos, facing) = {
             let b = *self.world.get::<&Body>(self.fighters[from]).expect("body");
             let f = self.world.get::<&Fighter>(self.fighters[from]).expect("fighter");
-            let pos = if voluntary { b.pos } else { data.arena.spawns[side % data.arena.spawns.len()] };
+            let pos = if voluntary { b.pos } else { self.arena.spawns[side % self.arena.spawns.len()] };
             (pos, f.facing)
         };
         if let Ok(q) = self.world.query_one_mut::<(&mut Body, &mut Fighter)>(self.fighters[from]) {
@@ -399,7 +411,7 @@ impl Battle {
             q.0.pos = pos;
             q.0.vel = Vec2::ZERO;
             q.0.knock = Vec2::ZERO;
-            resolve_static(&mut q.0.pos, q.0.radius, &data);
+            resolve_static(&mut q.0.pos, q.0.radius, &self.arena);
             q.1.benched = false;
             q.1.facing = facing;
             q.1.action = Action::Idle;
@@ -639,7 +651,7 @@ impl Battle {
             body.pos += step;
             body.knock = body.knock * decay;
             let r = body.radius;
-            resolve_static(&mut body.pos, r, data);
+            resolve_static(&mut body.pos, r, &self.arena);
         }
         // Fighter-fighter separation.
         let n = self.fighters.len();
@@ -661,8 +673,8 @@ impl Battle {
                     let push = n * ((min - dist) * 0.5);
                     ba.pos -= push;
                     bb.pos += push;
-                    resolve_static(&mut ba.pos, ba.radius, data);
-                    resolve_static(&mut bb.pos, bb.radius, data);
+                    resolve_static(&mut ba.pos, ba.radius, &self.arena);
+                    resolve_static(&mut bb.pos, bb.radius, &self.arena);
                     *self.world.get::<&mut Body>(ea).expect("body") = ba;
                     *self.world.get::<&mut Body>(eb).expect("body") = bb;
                 }
@@ -785,14 +797,13 @@ impl Battle {
     }
 
     fn update_projectiles(&mut self, dt: f32, hits: &mut Vec<PendingHit>) {
-        let data = self.data.clone();
         let targets = self.targets();
         let mut dead = Vec::new();
         for (e, p) in self.world.query_mut::<(Entity, &mut Projectile)>() {
             p.pos += p.vel * dt;
             p.life -= dt;
-            let out = p.pos.x < 0.0 || p.pos.y < 0.0 || p.pos.x > data.arena.width || p.pos.y > data.arena.height;
-            let blocked = data
+            let out = p.pos.x < 0.0 || p.pos.y < 0.0 || p.pos.x > self.arena.width || p.pos.y > self.arena.height;
+            let blocked = self
                 .arena
                 .pillars
                 .iter()
@@ -1007,8 +1018,7 @@ impl Battle {
 }
 
 /// Keep a circle inside the arena and outside pillars.
-pub fn resolve_static(pos: &mut Vec2, r: f32, data: &GameData) {
-    let a = &data.arena;
+pub fn resolve_static(pos: &mut Vec2, r: f32, a: &ArenaDef) {
     pos.x = pos.x.clamp(r, a.width - r);
     pos.y = pos.y.clamp(r, a.height - r);
     for p in &a.pillars {

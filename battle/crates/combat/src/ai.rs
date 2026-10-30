@@ -1,7 +1,7 @@
 //! Basic combat AI: approach / keep distance, strafe, dodge incoming hits and
 //! pick moves by situation. Produces the same [`Intent`] a player would.
 
-use crate::data::{AiProfile, GameData, MoveDef, MoveShape};
+use crate::data::{AiProfile, ArenaDef, GameData, MoveDef, MoveShape};
 use crate::hitbox::Shape;
 use crate::math::Vec2;
 use crate::rng::Rng;
@@ -68,7 +68,7 @@ impl AiController {
             // 1. Dodge whatever is about to hit us.
             if let Some(away) = detect_threat(battle, &me_v, self.profile.threat_lookahead) {
                 if self.rng.chance(self.profile.dodge_chance) {
-                    let away = steer_from_walls(away, my_pos, me_v.body.radius, data);
+                    let away = steer_from_walls(away, my_pos, me_v.body.radius, battle.arena());
                     self.dodge_dir = away;
                     self.dodge_timer = 0.25;
                     intent.dash = me_v.fighter.dash_cooldown <= 0.0;
@@ -91,7 +91,7 @@ impl AiController {
             };
             let strafe = to_n.perp() * (self.strafe_sign * self.profile.strafe_amount);
             let mut dir = to_n * radial + strafe;
-            dir = avoid_obstacles(dir, my_pos, me_v.body.radius, data);
+            dir = avoid_obstacles(dir, my_pos, me_v.body.radius, battle.arena());
             self.move_dir = dir.normalize_or_zero();
 
             // 3. Switch out of a bad matchup or when nearly fainted.
@@ -329,9 +329,8 @@ pub fn detect_threat(battle: &Battle, me: &FighterView, lookahead: f32) -> Optio
     None
 }
 
-fn steer_from_walls(dir: Vec2, pos: Vec2, r: f32, data: &GameData) -> Vec2 {
+fn steer_from_walls(dir: Vec2, pos: Vec2, r: f32, a: &ArenaDef) -> Vec2 {
     let probe = pos + dir * 90.0;
-    let a = &data.arena;
     let mut d = dir;
     if probe.x < r || probe.x > a.width - r {
         d.x = -d.x;
@@ -342,8 +341,7 @@ fn steer_from_walls(dir: Vec2, pos: Vec2, r: f32, data: &GameData) -> Vec2 {
     d.normalize_or_zero()
 }
 
-fn avoid_obstacles(dir: Vec2, pos: Vec2, r: f32, data: &GameData) -> Vec2 {
-    let a = &data.arena;
+fn avoid_obstacles(dir: Vec2, pos: Vec2, r: f32, a: &ArenaDef) -> Vec2 {
     let margin = 70.0;
     let mut push = Vec2::ZERO;
     if pos.x < margin + r {

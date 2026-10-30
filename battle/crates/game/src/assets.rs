@@ -75,6 +75,8 @@ pub struct SheetLayout {
 pub struct ArenaArt {
     pub ground: String,
     pub obstacle: String,
+    /// Pillar radius (game units) the obstacle art is drawn for.
+    pub obstacle_radius: f32,
     /// Used by the sprite generator only.
     #[allow(dead_code)]
     pub snow: bool,

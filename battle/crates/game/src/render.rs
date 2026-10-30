@@ -143,7 +143,7 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
         vec2(0.0, 0.0)
     };
 
-    let a = &data.arena;
+    let a = battle.arena();
     let art = assets.arena_art.get(&a.art);
     let tex = gfx.sprites.arena(&a.art);
     let (ox, oy) = (ARENA_X + shake.x, ARENA_Y + shake.y);
@@ -239,7 +239,9 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
                     Some(t) => {
                         let n = (t.obstacles.width() / 64.0).max(1.0) as usize;
                         let src = Rect::new((i % n) as f32 * 64.0, 0.0, 64.0, 64.0);
-                        let sc = gfx.sprites.layout.pixel_scale;
+                        // Rock art is drawn for `obstacle_radius`; scale to this pillar.
+                        let k = art.map(|b| p.radius / b.obstacle_radius).unwrap_or(1.0);
+                        let sc = gfx.sprites.layout.pixel_scale * k;
                         draw_texture_ex(
                             &t.obstacles,
                             (s.x - 32.0 * sc).round(),
@@ -649,6 +651,7 @@ pub enum SelectRow {
     Format,
     Player(usize),
     Enemy(usize),
+    Arena,
     Ai,
 }
 
@@ -656,6 +659,7 @@ pub struct SelectView<'a> {
     pub rows: &'a [SelectRow],
     pub focus: usize,
     pub team_size: usize,
+    pub arena: &'a str,
     pub player: &'a [usize],
     pub enemy: &'a [usize],
     pub ai: &'a str,
@@ -668,7 +672,7 @@ pub fn draw_select(data: &GameData, gfx: &Gfx, v: &SelectView) {
     text_centered("UP/DOWN choose row   LEFT/RIGHT change   ENTER fight   ESC quit", SCREEN_W * 0.5, 86.0, 18.0, DIM);
 
     let name = |c: usize| assets.creature_name(&data.creatures[c].asset).to_string();
-    let row_h = if v.rows.len() > 4 { 24.0 } else { 40.0 };
+    let row_h = if v.rows.len() > 5 { 22.0 } else { 34.0 };
     let top = 120.0;
     for (i, row) in v.rows.iter().enumerate() {
         let (label, value) = match *row {
@@ -677,6 +681,7 @@ pub fn draw_select(data: &GameData, gfx: &Gfx, v: &SelectView) {
             SelectRow::Player(k) => (format!("You #{}", k + 1), name(v.player[k])),
             SelectRow::Enemy(k) if v.team_size == 1 => ("Opponent".to_string(), name(v.enemy[k])),
             SelectRow::Enemy(k) => (format!("Foe #{}", k + 1), name(v.enemy[k])),
+            SelectRow::Arena => ("Arena".to_string(), v.arena.to_string()),
             SelectRow::Ai => ("AI".to_string(), v.ai.to_string()),
         };
         let y = top + i as f32 * row_h;

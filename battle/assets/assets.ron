@@ -21,8 +21,8 @@
     // Arena themes, chosen by `art` in data/arena.ron. `obstacle` is a strip of
     // 64px rock variants drawn at pixel_scale.
     arena_art: {
-        "snowfield": (ground: "arena/snow.png", obstacle: "arena/rocks_snow.png", snow: true, border: (120, 136, 168)),
-        "meadow":    (ground: "arena/grass.png", obstacle: "arena/rocks.png", snow: false, border: (70, 104, 60)),
+        "snowfield": (ground: "arena/snow.png", obstacle: "arena/rocks_snow.png", obstacle_radius: 34.0, snow: true, border: (120, 136, 168)),
+        "meadow":    (ground: "arena/grass.png", obstacle: "arena/rocks.png", obstacle_radius: 34.0, snow: false, border: (70, 104, 60)),
     },
     // Sound ids played on battle events (None = silent). Played only when built
     // with `--features audio`.

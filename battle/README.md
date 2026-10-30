@@ -54,7 +54,7 @@ saves frame `FRAME` as PNG. Without a display it needs `xvfb-run` (the script ha
 ## Layout
 
 ```
-data/          balance: types.ron, moves.ron, creatures.ron, balance.ron, arena.ron
+data/          balance: types.ron, moves.ron, creatures.ron, balance.ron, arenas.ron
                feel.ron: hit-stop, shake, particles, input buffer (presentation only)
 assets/        presentation only: assets.ron (names, colours, sprite sheet layout, sounds)
 assets/sprites, assets/arena   generated placeholder art (cargo run --release --bin gen_sprites)

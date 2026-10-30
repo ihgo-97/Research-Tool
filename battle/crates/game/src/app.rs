@@ -30,6 +30,8 @@ pub struct Screenshot {
 pub struct AppConfig {
     /// Both rosters have this many creatures (1 = classic 1v1).
     pub team_size: usize,
+    /// Index into `GameData::arenas`.
+    pub arena: usize,
     pub player: Vec<usize>,
     pub enemy: Vec<usize>,
     pub ai: String,
@@ -81,6 +83,7 @@ fn select_rows(cfg: &AppConfig) -> Vec<SelectRow> {
     let mut rows = vec![SelectRow::Format];
     rows.extend((0..cfg.team_size).map(SelectRow::Player));
     rows.extend((0..cfg.team_size).map(SelectRow::Enemy));
+    rows.push(SelectRow::Arena);
     rows.push(SelectRow::Ai);
     rows
 }
@@ -165,6 +168,7 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
                             }
                             SelectRow::Player(k) => cycle(&mut cfg.player, k),
                             SelectRow::Enemy(k) => cycle(&mut cfg.enemy, k),
+                            SelectRow::Arena => cfg.arena = (cfg.arena as i32 + delta).rem_euclid(data.arenas.len() as i32) as usize,
                             SelectRow::Ai => ai_idx = (ai_idx as i32 + delta).rem_euclid(ai_names.len() as i32) as usize,
                         }
                     }
@@ -182,6 +186,7 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
                         rows: &rows,
                         focus,
                         team_size: cfg.team_size,
+                        arena: &data.arenas[cfg.arena].id,
                         player: &cfg.player,
                         enemy: &cfg.enemy,
                         ai: &ai_names[ai_idx],
@@ -282,7 +287,7 @@ fn new_battle(data: &Arc<GameData>, cfg: &AppConfig, ai: &str, seed: u64, autopl
         fill_roster(cfg.player.clone(), cfg.team_size, n, 0),
         fill_roster(cfg.enemy.clone(), cfg.team_size, n, 3),
     ];
-    let battle = Battle::with_rosters(data.clone(), &rosters, seed);
+    let battle = Battle::with_arena(data.clone(), &rosters, cfg.arena, seed);
     let fighters = battle.fighter_count();
     BattleScreen {
         battle,

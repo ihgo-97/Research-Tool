@@ -13,6 +13,8 @@ pub struct HeadlessOpts {
     pub matchup: Option<(CreatureId, CreatureId)>,
     /// Creatures per side; above 1 runs random team battles instead of 1v1 pairs.
     pub team_size: usize,
+    /// Index into `GameData::arenas`.
+    pub arena: usize,
     pub ai: String,
     /// AI profile for the right-hand side (defaults to `ai`).
     pub ai_b: Option<String>,
@@ -100,7 +102,7 @@ fn run_teams(data: Arc<GameData>, assets: &AssetDb, opts: &HeadlessOpts) -> bool
     let ai_b = opts.ai_b.clone().unwrap_or_else(|| ai.clone());
     let results: Vec<Result<TeamSummary, String>> = run_parallel(
         &jobs,
-        |j| combat::run_ai_team_battle(&data, j.rosters.clone(), [&ai, &ai_b], j.seed),
+        |j| combat::run_ai_team_battle(&data, j.rosters.clone(), [&ai, &ai_b], opts.arena, j.seed),
         |j| format!("{:?} vs {:?} seed {}", j.rosters[0], j.rosters[1], j.seed),
     );
     let elapsed = started.elapsed().as_secs_f32();
@@ -145,8 +147,9 @@ fn run_teams(data: Arc<GameData>, assets: &AssetDb, opts: &HeadlessOpts) -> bool
         None => format!("'{}'", opts.ai),
     };
     println!(
-        "== headless teams: {} battles of {k}v{k}, AI {ai_desc}, {} threads, {:.1}s wall",
+        "== headless teams: {} battles of {k}v{k}, AI {ai_desc}, arena '{}', {} threads, {:.1}s wall",
         results.len(),
+        data.arenas[opts.arena].id,
         workers(),
         elapsed
     );
@@ -205,7 +208,7 @@ pub fn run(data: Arc<GameData>, assets: &AssetDb, opts: &HeadlessOpts) -> bool {
     let ai_b = opts.ai_b.clone().unwrap_or_else(|| ai.clone());
     let results: Vec<Result<BattleSummary, String>> = run_parallel(
         &jobs,
-        |j| combat::run_ai_battle_with(&data, j.a, j.b, [&ai, &ai_b], j.seed),
+        |j| combat::run_ai_battle_with(&data, j.a, j.b, [&ai, &ai_b], opts.arena, j.seed),
         |j| format!("{} vs {} seed {}", j.a, j.b, j.seed),
     );
     let elapsed = started.elapsed().as_secs_f32();
@@ -262,7 +265,13 @@ pub fn run(data: Arc<GameData>, assets: &AssetDb, opts: &HeadlessOpts) -> bool {
         Some(b) => format!("left '{}' vs right '{b}'", opts.ai),
         None => format!("'{}'", opts.ai),
     };
-    println!("== headless: {} battles, AI {ai_desc}, {} threads, {:.1}s wall", results.len(), threads, elapsed);
+    println!(
+        "== headless: {} battles, AI {ai_desc}, arena '{}', {} threads, {:.1}s wall",
+        results.len(),
+        data.arenas[opts.arena].id,
+        threads,
+        elapsed
+    );
     println!(
         "crashes: {}   KOs: {}   timeouts: {}   draws: {}",
         crashes.len(),

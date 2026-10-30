@@ -53,7 +53,7 @@ fn unknown_move_reference_is_rejected() {
         &read("moves.ron"),
         &creatures,
         &read("balance.ron"),
-        &read("arena.ron"),
+        &read("arenas.ron"),
     );
     assert!(r.is_err());
 }
@@ -287,7 +287,7 @@ fn data_sure_procs() -> Arc<GameData> {
     let read = |f: &str| std::fs::read_to_string(format!("{dir}{f}")).unwrap();
     let moves = regex_lite_chance(&read("moves.ron"));
     Arc::new(
-        GameData::from_strs(&read("types.ron"), &moves, &read("creatures.ron"), &read("balance.ron"), &read("arena.ron")).unwrap(),
+        GameData::from_strs(&read("types.ron"), &moves, &read("creatures.ron"), &read("balance.ron"), &read("arenas.ron")).unwrap(),
     )
 }
 
@@ -455,8 +455,8 @@ fn ai_team_battles_finish_and_are_deterministic() {
     let d = data();
     let rosters = [trio(&d, ["emberkit", "sproutle", "pebblor"]), trio(&d, ["tidepup", "voltfin", "galeon"])];
     for seed in 0..4 {
-        let a = combat::run_ai_team_battle(&d, rosters.clone(), ["normal", "normal"], seed);
-        let b = combat::run_ai_team_battle(&d, rosters.clone(), ["normal", "normal"], seed);
+        let a = combat::run_ai_team_battle(&d, rosters.clone(), ["normal", "normal"], 0, seed);
+        let b = combat::run_ai_team_battle(&d, rosters.clone(), ["normal", "normal"], 0, seed);
         assert_eq!(a.outcome, b.outcome);
         assert_eq!(a.seconds, b.seconds);
         assert_eq!(a.switches, b.switches);

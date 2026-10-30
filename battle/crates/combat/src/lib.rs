@@ -31,7 +31,7 @@ pub struct BattleSummary {
 
 /// Run a 1v1 battle with both sides AI-controlled until it ends.
 pub fn run_ai_battle(data: &Arc<GameData>, a: CreatureId, b: CreatureId, profile: &str, seed: u64) -> BattleSummary {
-    run_ai_battle_with(data, a, b, [profile, profile], seed)
+    run_ai_battle_with(data, a, b, [profile, profile], 0, seed)
 }
 
 /// Result of one AI-vs-AI team battle.
@@ -47,13 +47,13 @@ pub struct TeamSummary {
 }
 
 /// Run an AI-vs-AI team battle (rosters of any size) until it ends.
-pub fn run_ai_team_battle(data: &Arc<GameData>, rosters: [Vec<CreatureId>; 2], profiles: [&str; 2], seed: u64) -> TeamSummary {
+pub fn run_ai_team_battle(data: &Arc<GameData>, rosters: [Vec<CreatureId>; 2], profiles: [&str; 2], arena: usize, seed: u64) -> TeamSummary {
     let prof = |name: &str| {
         data.ai_profile(name)
             .unwrap_or_else(|| panic!("unknown AI profile '{name}'"))
             .clone()
     };
-    let mut battle = Battle::with_rosters(data.clone(), &rosters, seed);
+    let mut battle = Battle::with_arena(data.clone(), &rosters, arena, seed);
     let mut ais = [
         ai::AiController::new(prof(profiles[0]), seed.wrapping_mul(31).wrapping_add(1)),
         ai::AiController::new(prof(profiles[1]), seed.wrapping_mul(31).wrapping_add(2)),
@@ -80,13 +80,13 @@ pub fn run_ai_team_battle(data: &Arc<GameData>, rosters: [Vec<CreatureId>; 2], p
 }
 
 /// Like [`run_ai_battle`] but each side can use a different AI profile.
-pub fn run_ai_battle_with(data: &Arc<GameData>, a: CreatureId, b: CreatureId, profiles: [&str; 2], seed: u64) -> BattleSummary {
+pub fn run_ai_battle_with(data: &Arc<GameData>, a: CreatureId, b: CreatureId, profiles: [&str; 2], arena: usize, seed: u64) -> BattleSummary {
     let prof = |name: &str| {
         data.ai_profile(name)
             .unwrap_or_else(|| panic!("unknown AI profile '{name}'"))
             .clone()
     };
-    let mut battle = Battle::new(data.clone(), &[a, b], seed);
+    let mut battle = Battle::with_arena(data.clone(), &[vec![a], vec![b]], arena, seed);
     let mut ais = [
         ai::AiController::new(prof(profiles[0]), seed.wrapping_mul(31).wrapping_add(1)),
         ai::AiController::new(prof(profiles[1]), seed.wrapping_mul(31).wrapping_add(2)),

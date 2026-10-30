@@ -347,7 +347,7 @@ pub struct Balance {
     pub ai_profiles: HashMap<String, AiProfile>,
 }
 
-// ---------------------------------------------------------------- arena.ron
+// --------------------------------------------------------------- arenas.ron
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Pillar {
@@ -357,6 +357,7 @@ pub struct Pillar {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ArenaDef {
+    pub id: String,
     /// Presentation theme id, resolved by the front-end's asset database.
     #[serde(default)]
     pub art: String,
@@ -375,7 +376,8 @@ pub struct GameData {
     pub moves: Vec<MoveDef>,
     pub creatures: Vec<CreatureDef>,
     pub balance: Balance,
-    pub arena: ArenaDef,
+    /// Selectable arenas; battles use the first unless told otherwise.
+    pub arenas: Vec<ArenaDef>,
 }
 
 /// Raw file contents, before cross-reference resolution.
@@ -384,7 +386,7 @@ pub struct RawData {
     pub moves: Vec<MoveDefRaw>,
     pub creatures: Vec<CreatureDefRaw>,
     pub balance: Balance,
-    pub arena: ArenaDef,
+    pub arenas: Vec<ArenaDef>,
 }
 
 fn parse<T: serde::de::DeserializeOwned>(name: &str, text: &str) -> Result<T, DataError> {
@@ -404,7 +406,7 @@ impl GameData {
             &read(dir, "moves.ron")?,
             &read(dir, "creatures.ron")?,
             &read(dir, "balance.ron")?,
-            &read(dir, "arena.ron")?,
+            &read(dir, "arenas.ron")?,
         )
     }
 
@@ -413,14 +415,14 @@ impl GameData {
         moves: &str,
         creatures: &str,
         balance: &str,
-        arena: &str,
+        arenas: &str,
     ) -> Result<Self, DataError> {
         Self::resolve(RawData {
             types: parse("types.ron", types)?,
             moves: parse("moves.ron", moves)?,
             creatures: parse("creatures.ron", creatures)?,
             balance: parse("balance.ron", balance)?,
-            arena: parse("arena.ron", arena)?,
+            arenas: parse("arenas.ron", arenas)?,
         })
     }
 
@@ -537,8 +539,13 @@ impl GameData {
             });
         }
 
-        if raw.arena.spawns.len() < 2 {
-            return err("arena: needs at least 2 spawn points");
+        if raw.arenas.is_empty() {
+            return err("arenas: need at least one arena");
+        }
+        for a in &raw.arenas {
+            if a.spawns.len() < 2 {
+                return err(format!("arena '{}': needs at least 2 spawn points", a.id));
+            }
         }
         if raw.balance.tick_rate == 0 {
             return err("balance: tick_rate must be > 0");
@@ -553,7 +560,7 @@ impl GameData {
             moves,
             creatures,
             balance: raw.balance,
-            arena: raw.arena,
+            arenas: raw.arenas,
         })
     }
 
@@ -563,6 +570,10 @@ impl GameData {
 
     pub fn move_id(&self, id: &str) -> Option<MoveId> {
         self.moves.iter().position(|m| m.id == id)
+    }
+
+    pub fn arena_id(&self, id: &str) -> Option<usize> {
+        self.arenas.iter().position(|a| a.id == id)
     }
 
     pub fn status_id(&self, id: &str) -> Option<StatusId> {

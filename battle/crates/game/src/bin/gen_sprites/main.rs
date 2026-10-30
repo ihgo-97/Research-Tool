@@ -35,6 +35,7 @@ struct CreatureEntry {
 struct ArenaArt {
     ground: String,
     obstacle: String,
+    obstacle_radius: f32,
     snow: bool,
 }
 
@@ -50,15 +51,6 @@ struct CreatureData {
     radius: f32,
 }
 
-#[derive(Deserialize)]
-struct Pillar {
-    radius: f32,
-}
-
-#[derive(Deserialize)]
-struct ArenaData {
-    pillars: Vec<Pillar>,
-}
 
 fn root() -> PathBuf {
     let local = PathBuf::from("assets");
@@ -238,7 +230,6 @@ fn main() {
     let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap_or_else(|e| panic!("{p}: {e}"));
     let assets: Assets = ron::from_str(&read("assets/assets.ron")).expect("parse assets.ron");
     let creatures: Vec<CreatureData> = ron::from_str(&read("data/creatures.ron")).expect("parse creatures.ron");
-    let arena: ArenaData = ron::from_str(&read("data/arena.ron")).expect("parse arena.ron");
 
     for c in &creatures {
         let Some(Some(rel)) = assets.creatures.get(&c.asset).map(|e| e.sprite.as_ref()) else {
@@ -246,13 +237,12 @@ fn main() {
         };
         creature_sheet(&c.asset, c.radius, &root.join("assets").join(rel));
     }
-    let pillar_r = arena.pillars.iter().map(|p| p.radius).fold(0.0, f32::max).max(24.0);
     let mut themes: Vec<_> = assets.arena_art.iter().collect();
     themes.sort_by_key(|(k, _)| k.as_str());
     for (name, art) in themes {
         let kind = if art.snow { "snow" } else { "grass" };
         let _ = name;
         ground_tile(kind, &root.join("assets").join(&art.ground));
-        rock_strip(pillar_r, art.snow, &root.join("assets").join(&art.obstacle));
+        rock_strip(art.obstacle_radius, art.snow, &root.join("assets").join(&art.obstacle));
     }
 }

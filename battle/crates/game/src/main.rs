@@ -7,6 +7,7 @@
 //! options:
 //!   --player ID[,ID..]  --enemy ID[,ID..] creatures (data/creatures.ron ids); a list is a team
 //!   --team-size N                        creatures per side (default: length of --player, else 1)
+//!   --arena ID                           arena (data/arenas.ron id, default: the first)
 //!   --matchup A B                        headless: only this pairing
 //!   --moves                              headless: also print per-move stats
 //!   --ai NAME                            AI profile from data/balance.ron (default normal)
@@ -39,6 +40,7 @@ struct Args {
     enemy: Option<String>,
     matchup: Option<(String, String)>,
     team_size: Option<usize>,
+    arena: Option<String>,
     moves: bool,
     ai: String,
     ai_b: Option<String>,
@@ -56,6 +58,7 @@ fn parse_args() -> Result<Args, String> {
         enemy: None,
         matchup: None,
         team_size: None,
+        arena: None,
         moves: false,
         ai: "normal".into(),
         ai_b: None,
@@ -97,6 +100,7 @@ fn parse_args() -> Result<Args, String> {
                 a.matchup = Some((x, y));
             }
             "--moves" => a.moves = true,
+            "--arena" => a.arena = Some(val(&mut it, "--arena")?),
             "--team-size" => {
                 let n: usize = val(&mut it, "--team-size")?.parse().map_err(|_| "--team-size: not a number")?;
                 if n == 0 {
@@ -178,6 +182,16 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let arena = match &args.arena {
+        Some(id) => match data.arena_id(id) {
+            Some(i) => i,
+            None => {
+                eprintln!("error: unknown arena '{id}'");
+                return ExitCode::from(2);
+            }
+        },
+        None => 0,
+    };
     let team_size = args.team_size.unwrap_or(player.len().max(enemy.len()).max(1));
     let n = data.creatures.len();
     let player = app::fill_roster(player, team_size, n, 0);
@@ -201,6 +215,7 @@ fn main() -> ExitCode {
                 per_pair,
                 matchup,
                 team_size,
+                arena,
                 ai: args.ai,
                 ai_b: args.ai_b,
                 seed: args.seed,
@@ -219,6 +234,7 @@ fn main() -> ExitCode {
     };
     let cfg = app::AppConfig {
         team_size,
+        arena,
         assets_dir,
         feel,
         player,
