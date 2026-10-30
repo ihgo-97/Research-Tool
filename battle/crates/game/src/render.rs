@@ -1,6 +1,8 @@
 //! All macroquad drawing. Reads simulation state; never mutates it.
 
 use crate::assets::{AssetDb, Rgb};
+use crate::fx::Fx;
+use crate::sprites::{pick_frame, Sprites};
 use combat::data::{GameData, MoveShape};
 use combat::hitbox::Shape;
 use combat::sim::{Action, Battle, FighterView};
@@ -38,36 +40,6 @@ pub fn text_centered(t: &str, cx: f32, y: f32, size: f32, color: Color) {
     draw_text(t, cx - d.width * 0.5, y, size, color);
 }
 
-/// Floating combat text and per-fighter flash timers.
-#[derive(Default)]
-pub struct Fx {
-    pub floaters: Vec<Floater>,
-    pub flash: Vec<f32>,
-    pub shake: f32,
-}
-
-pub struct Floater {
-    pub pos: combat::Vec2,
-    pub text: String,
-    pub color: Color,
-    pub size: f32,
-    pub t: f32,
-}
-
-impl Fx {
-    pub fn update(&mut self, dt: f32) {
-        for f in &mut self.floaters {
-            f.t += dt;
-            f.pos.y -= 40.0 * dt;
-        }
-        self.floaters.retain(|f| f.t < 0.9);
-        for t in &mut self.flash {
-            *t = (*t - dt).max(0.0);
-        }
-        self.shake = (self.shake - dt * 30.0).max(0.0);
-    }
-}
-
 fn type_id_color(data: &GameData, assets: &AssetDb, t: usize) -> Color {
     rgb(assets.type_color(&data.types.names[t]), 1.0)
 }
@@ -76,7 +48,14 @@ fn move_color(data: &GameData, assets: &AssetDb, mv: usize) -> Color {
     type_id_color(data, assets, data.moves[mv].element)
 }
 
-pub fn draw_battle(battle: &Battle, assets: &AssetDb, fx: &Fx, player: usize) {
+/// Everything the renderer needs besides the battle itself.
+pub struct Gfx<'a> {
+    pub assets: &'a AssetDb,
+    pub sprites: &'a Sprites,
+}
+
+pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
+    let assets = gfx.assets;
     let data = &*battle.data;
     clear_background(BG);
     let shake = if fx.shake > 0.0 {
@@ -140,14 +119,24 @@ pub fn draw_battle(battle: &Battle, assets: &AssetDb, fx: &Fx, player: usize) {
         draw_circle(s.x, s.y, p.radius * 0.45, Color::new(1.0, 1.0, 1.0, 0.85));
     }
 
-    for i in 0..battle.fighter_count() {
-        let v = battle.fighter(i);
-        draw_fighter(data, assets, &v, fx.flash.get(i).copied().unwrap_or(0.0), i == player, shake);
+    // Draw back-to-front so the lower creature overlaps the upper one.
+    let mut order: Vec<usize> = (0..battle.fighter_count()).collect();
+    let views: Vec<FighterView> = order.iter().map(|&i| battle.fighter(i)).collect();
+    order.sort_by(|&a, &b| views[a].body.pos.y.total_cmp(&views[b].body.pos.y));
+    for i in order {
+        let flash = fx.flash.get(i).copied().unwrap_or(0.0) > 0.0;
+        draw_fighter(data, gfx, &views[i], flash, i == player, battle.time(), shake);
+    }
+
+    for p in &fx.particles {
+        let s = to_screen(p.pos, shake);
+        let k = (p.life / p.max_life).clamp(0.0, 1.0);
+        draw_circle(s.x, s.y, p.size * (0.4 + 0.6 * k), Color::new(p.color.r, p.color.g, p.color.b, p.color.a * k));
     }
 
     for f in &fx.floaters {
         let s = to_screen(f.pos, shake);
-        let a = (1.0 - f.t / 0.9).clamp(0.0, 1.0);
+        let a = Fx::floater_alpha(f);
         text_centered(&f.text, s.x + 1.0, s.y + 1.0, f.size, Color::new(0.0, 0.0, 0.0, a * 0.7));
         text_centered(&f.text, s.x, s.y, f.size, Color::new(f.color.r, f.color.g, f.color.b, a));
     }
@@ -167,38 +156,67 @@ fn draw_arc_sector(c: macroquad::math::Vec2, r: f32, angle: f32, half: f32, col:
     }
 }
 
-fn draw_fighter(data: &GameData, assets: &AssetDb, v: &FighterView, flash: f32, is_player: bool, shake: macroquad::math::Vec2) {
+fn draw_fighter(data: &GameData, gfx: &Gfx, v: &FighterView, flash: bool, is_player: bool, time: f32, shake: macroquad::math::Vec2) {
+    let assets = gfx.assets;
     let c = &data.creatures[v.fighter.creature];
     let s = to_screen(v.body.pos, shake);
     let r = v.body.radius;
-    let mut col = rgb(assets.creature_color(&c.asset), 1.0);
-    if !v.fighter.alive() {
-        col = Color::new(0.3, 0.3, 0.3, 0.6);
-    }
-    if v.fighter.iframes > 0.0 {
-        col.a = 0.45;
-    }
-    if flash > 0.0 {
-        col = Color::new(1.0, 1.0, 1.0, col.a);
-    }
+    let base = rgb(assets.creature_color(&c.asset), 1.0);
+    let alpha = if v.fighter.iframes > 0.0 { 0.45 } else { 1.0 };
+    let ring = if is_player { Color::new(1.0, 1.0, 1.0, 0.85) } else { Color::new(1.0, 0.35, 0.35, 0.85) };
 
-    draw_circle(s.x, s.y + r * 0.35, r * 0.9, Color::new(0.0, 0.0, 0.0, 0.25));
+    // Ground: shadow plus a team-coloured ring that also shows the hurtbox.
+    draw_ellipse(s.x, s.y + r * 0.55, r * 0.95, r * 0.4, 0.0, Color::new(0.0, 0.0, 0.0, 0.3));
+    draw_circle_lines(s.x, s.y, r + 2.0, 2.0, Color::new(ring.r, ring.g, ring.b, 0.55));
+
+    let sheet = gfx.sprites.sheet(&c.asset);
     if let Action::Dash { dir, .. } = v.fighter.action {
         for k in 1..4 {
             let t = s - vec2(dir.x, dir.y) * (k as f32 * 10.0);
-            draw_circle(t.x, t.y, r * (1.0 - k as f32 * 0.15), Color::new(col.r, col.g, col.b, 0.18));
+            draw_circle(t.x, t.y, r * (1.0 - k as f32 * 0.15), Color::new(base.r, base.g, base.b, 0.16));
         }
     }
-    // Team ring: player = white, opponent = red.
-    let ring = if is_player { Color::new(1.0, 1.0, 1.0, 0.85) } else { Color::new(1.0, 0.35, 0.35, 0.85) };
-    draw_circle(s.x, s.y, r, col);
-    draw_circle_lines(s.x, s.y, r + 2.0, 2.5, ring);
 
-    // Facing nose.
+    if let Some(tex) = sheet {
+        let layout = &gfx.sprites.layout;
+        let speed = v.body.vel.length();
+        let (anim, frame) = pick_frame(&v.fighter.action, speed, flash, time, layout);
+        let size = 2.0 * r / layout.body_fraction;
+        let tint = if v.fighter.alive() {
+            Color::new(1.0, 1.0, 1.0, alpha)
+        } else {
+            Color::new(0.55, 0.55, 0.55, 0.8)
+        };
+        draw_texture_ex(
+            tex,
+            s.x - size * 0.5,
+            s.y - size * 0.5 - size * 0.06,
+            tint,
+            DrawTextureParams {
+                dest_size: Some(vec2(size, size)),
+                source: Some(gfx.sprites.source_rect(anim, frame)),
+                flip_x: v.fighter.facing.x < 0.0,
+                ..Default::default()
+            },
+        );
+    } else {
+        let mut col = if v.fighter.alive() { base } else { Color::new(0.3, 0.3, 0.3, 0.6) };
+        col.a *= alpha;
+        if flash {
+            col = Color::new(1.0, 1.0, 1.0, col.a);
+        }
+        draw_circle(s.x, s.y, r, col);
+        draw_circle_lines(s.x, s.y, r + 2.0, 2.5, ring);
+    }
+
+    // Aim marker just outside the hurtbox.
     let f = vec2(v.fighter.facing.x, v.fighter.facing.y);
-    let tip = s + f * (r + 9.0);
-    let side = vec2(-f.y, f.x) * (r * 0.45);
-    draw_triangle(tip, s + f * (r - 2.0) + side, s + f * (r - 2.0) - side, ring);
+    let tip = s + f * (r + 12.0);
+    let side = vec2(-f.y, f.x) * 5.0;
+    let back = s + f * (r + 4.0);
+    if v.fighter.alive() {
+        draw_triangle(tip, back + side, back - side, ring);
+    }
 
     match v.fighter.action {
         Action::Windup { slot, t, .. } => {
@@ -218,7 +236,7 @@ fn draw_fighter(data: &GameData, assets: &AssetDb, v: &FighterView, flash: f32, 
             }
         }
         Action::Hitstun { .. } => {
-            text_centered("*", s.x, s.y - r - 4.0, 28.0, YELLOW);
+            text_centered("*", s.x, s.y - r - 10.0, 28.0, YELLOW);
         }
         _ => {}
     }
@@ -227,7 +245,7 @@ fn draw_fighter(data: &GameData, assets: &AssetDb, v: &FighterView, flash: f32, 
     let w = 54.0;
     let frac = (v.fighter.hp / v.fighter.max_hp).clamp(0.0, 1.0);
     let bx = s.x - w * 0.5;
-    let by = s.y - r - 16.0;
+    let by = s.y - r / gfx.sprites.layout.body_fraction - 4.0;
     draw_rectangle(bx, by, w, 6.0, Color::new(0.0, 0.0, 0.0, 0.6));
     draw_rectangle(bx, by, w * frac, 6.0, hp_color(frac));
 }
@@ -294,7 +312,7 @@ fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
             MoveShape::Projectile { count, .. } if count > 1 => "spread",
             MoveShape::Projectile { .. } => "shot",
             MoveShape::Melee { .. } => "melee",
-            MoveShape::Burst { max_distance, .. } if max_distance > 0.0 => "aimed burst",
+            MoveShape::Burst { max_distance, .. } if max_distance > 0.0 => "aimed",
             MoveShape::Burst { .. } => "burst",
         };
         draw_text(format!("{}  pow {:.0}  {kind}", assets.type_name(&data.types.names[mv.element]), mv.power), x + 14.0, y + 42.0, 15.0, DIM);
@@ -346,6 +364,12 @@ fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
     }
 }
 
+pub fn draw_pause() {
+    draw_rectangle(0.0, 0.0, SCREEN_W, SCREEN_H, Color::new(0.0, 0.0, 0.0, 0.55));
+    text_centered("PAUSED", SCREEN_W * 0.5, 300.0, 80.0, TEXT);
+    text_centered("ESC / P  resume      R  restart      ENTER  creature select      X  quit", SCREEN_W * 0.5, 370.0, 24.0, TEXT);
+}
+
 pub fn draw_result(battle: &Battle, assets: &AssetDb, player: usize) {
     let Some(outcome) = battle.outcome() else { return };
     let data = &*battle.data;
@@ -390,7 +414,8 @@ pub struct SelectView<'a> {
     pub ai: &'a str,
 }
 
-pub fn draw_select(data: &GameData, assets: &AssetDb, v: &SelectView) {
+pub fn draw_select(data: &GameData, gfx: &Gfx, v: &SelectView) {
+    let assets = gfx.assets;
     clear_background(BG);
     text_centered("REAL-TIME ARENA", SCREEN_W * 0.5, 70.0, 56.0, TEXT);
     text_centered("UP/DOWN choose row   LEFT/RIGHT change   ENTER fight   ESC quit", SCREEN_W * 0.5, 104.0, 20.0, DIM);
@@ -410,8 +435,8 @@ pub fn draw_select(data: &GameData, assets: &AssetDb, v: &SelectView) {
         text_centered(&format!("<  {value}  >"), 720.0, y, 28.0, if focused { YELLOW } else { TEXT });
     }
 
-    draw_creature_card(data, assets, v.player, v.enemy, 60.0, 310.0);
-    draw_creature_card(data, assets, v.enemy, v.player, 660.0, 310.0);
+    draw_creature_card(data, gfx, v.player, v.enemy, 60.0, 310.0);
+    draw_creature_card(data, gfx, v.enemy, v.player, 660.0, 310.0);
     text_centered(
         "WASD move   mouse aim   LMB/RMB/Q/E (or 1-4) moves   SPACE/SHIFT dash (brief invulnerability)",
         SCREEN_W * 0.5,
@@ -421,14 +446,30 @@ pub fn draw_select(data: &GameData, assets: &AssetDb, v: &SelectView) {
     );
 }
 
-fn draw_creature_card(data: &GameData, assets: &AssetDb, id: usize, vs: usize, x: f32, y: f32) {
+fn draw_creature_card(data: &GameData, gfx: &Gfx, id: usize, vs: usize, x: f32, y: f32) {
+    let assets = gfx.assets;
     let c = &data.creatures[id];
     let other = &data.creatures[vs];
     let (w, h) = (560.0, 410.0);
     draw_rectangle(x, y, w, h, PANEL);
     let col = rgb(assets.creature_color(&c.asset), 1.0);
-    draw_circle(x + 60.0, y + 60.0, c.radius * 1.5, col);
-    draw_circle_lines(x + 60.0, y + 60.0, c.radius * 1.5, 2.0, WHITE);
+    if let Some(tex) = gfx.sprites.sheet(&c.asset) {
+        let frame = ((get_time() as f32 * gfx.sprites.layout.fps * 0.6) as u32) % gfx.sprites.layout.columns.max(1);
+        draw_texture_ex(
+            tex,
+            x + 12.0,
+            y + 8.0,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(96.0, 96.0)),
+                source: Some(gfx.sprites.source_rect(crate::sprites::Anim::Idle, frame)),
+                ..Default::default()
+            },
+        );
+    } else {
+        draw_circle(x + 60.0, y + 60.0, c.radius * 1.5, col);
+        draw_circle_lines(x + 60.0, y + 60.0, c.radius * 1.5, 2.0, WHITE);
+    }
     draw_text(assets.creature_name(&c.asset), x + 120.0, y + 52.0, 34.0, TEXT);
     let mut tx = x + 120.0;
     for &t in &c.types {

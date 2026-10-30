@@ -17,8 +17,12 @@
 
 mod app;
 mod assets;
+mod audio;
+mod feel;
+mod fx;
 mod headless;
 mod render;
+mod sprites;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -125,14 +129,16 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let data = match GameData::load_dir(find_dir(args.data.clone(), "data")) {
+    let data_dir = find_dir(args.data.clone(), "data");
+    let assets_dir = find_dir(args.assets.clone(), "assets");
+    let data = match GameData::load_dir(&data_dir) {
         Ok(d) => Arc::new(d),
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::FAILURE;
         }
     };
-    let assets = match assets::AssetDb::load(&find_dir(args.assets.clone(), "assets")) {
+    let assets = match assets::AssetDb::load(&assets_dir) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("asset error: {e}");
@@ -186,7 +192,16 @@ fn main() -> ExitCode {
         return if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE };
     }
 
+    let feel = match feel::Feel::load(&data_dir) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("data error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     let cfg = app::AppConfig {
+        assets_dir,
+        feel,
         player,
         enemy,
         ai: args.ai,

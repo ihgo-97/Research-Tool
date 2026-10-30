@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 
 echo "== build";   cargo build --release
 echo "== clippy";  cargo clippy --all-targets -- -D warnings
+echo "== audio feature compiles"; cargo check --release --features audio
 echo "== test";    cargo test --release
 echo "== headless"; ./target/release/arena --headless "${HEADLESS_N:-20}"
 

@@ -1,7 +1,28 @@
 // Presentation assets, keyed by the `asset` ids in data/*.ron.
-// Placeholder art for now: colours only. `sprite`/`sound` paths are relative
-// to this folder and will be picked up once real art exists.
+// Paths are relative to this folder. A missing or broken sprite falls back to
+// a coloured circle; a missing sound is silent. Swap art here, never in code.
 (
+    // Creature sprite sheets: `columns` frames per row, one row per animation.
+    // Creatures face right (flipped when facing left). `body_fraction` is the
+    // creature's hurtbox diameter as a fraction of the frame size.
+    // The current sheets are generated placeholders: `cargo run --bin gen_sprites`.
+    sheet: (
+        frame_size: 48,
+        columns: 4,
+        rows: (idle: 0, walk: 1, attack: 2, hurt: 3),
+        fps: 8.0,
+        body_fraction: 0.56,
+    ),
+    // Sound ids played on battle events (None = silent). Played only when built
+    // with `--features audio`.
+    sounds: {
+        "launch": None,
+        "hit": None,
+        "hit_strong": None,
+        "dodge": None,
+        "dash": None,
+        "ko": None,
+    },
     types: {
         "normal":   (name: "Normal",   color: (168, 168, 140)),
         "fire":     (name: "Fire",     color: (240, 110, 48)),
@@ -12,12 +33,12 @@
         "wind":     (name: "Wind",     color: (150, 210, 220)),
     },
     creatures: {
-        "emberkit": (name: "Emberkit", color: (232, 96, 52)),
-        "tidepup":  (name: "Tidepup",  color: (64, 130, 220)),
-        "sproutle": (name: "Sproutle", color: (84, 176, 76)),
-        "voltfin":  (name: "Voltfin",  color: (236, 196, 40)),
-        "pebblor":  (name: "Pebblor",  color: (150, 128, 96)),
-        "galeon":   (name: "Galeon",   color: (130, 196, 206)),
+        "emberkit": (name: "Emberkit", color: (232, 96, 52), sprite: Some("sprites/emberkit.png")),
+        "tidepup":  (name: "Tidepup",  color: (64, 130, 220), sprite: Some("sprites/tidepup.png")),
+        "sproutle": (name: "Sproutle", color: (84, 176, 76), sprite: Some("sprites/sproutle.png")),
+        "voltfin":  (name: "Voltfin",  color: (236, 196, 40), sprite: Some("sprites/voltfin.png")),
+        "pebblor":  (name: "Pebblor",  color: (150, 128, 96), sprite: Some("sprites/pebblor.png")),
+        "galeon":   (name: "Galeon",   color: (130, 196, 206), sprite: Some("sprites/galeon.png")),
     },
     moves: {
         "tackle":       (name: "Tackle"),

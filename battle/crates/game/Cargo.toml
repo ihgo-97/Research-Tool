@@ -14,3 +14,7 @@ combat = { path = "../combat" }
 macroquad.workspace = true
 serde.workspace = true
 ron.workspace = true
+
+[features]
+# Sound playback (needs ALSA dev libs on Linux: libasound2-dev).
+audio = ["macroquad/audio"]

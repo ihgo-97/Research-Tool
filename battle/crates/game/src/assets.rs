@@ -17,8 +17,7 @@ pub struct TypeAsset {
 pub struct CreatureAsset {
     pub name: String,
     pub color: Rgb,
-    /// Not drawn yet: placeholder shapes are used until real art lands.
-    #[allow(dead_code)]
+    /// Sprite sheet path relative to the assets folder (layout: [`SheetLayout`]).
     #[serde(default)]
     pub sprite: Option<String>,
 }
@@ -32,8 +31,31 @@ pub struct MoveAsset {
     pub sound: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct SheetRows {
+    pub idle: u32,
+    pub walk: u32,
+    pub attack: u32,
+    pub hurt: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SheetLayout {
+    pub frame_size: u32,
+    pub columns: u32,
+    pub rows: SheetRows,
+    pub fps: f32,
+    /// Hurtbox diameter as a fraction of the frame size.
+    pub body_fraction: f32,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AssetDb {
+    pub sheet: SheetLayout,
+    /// Battle-event sound ids (see `audio.rs`); None = silent.
+    #[cfg_attr(not(feature = "audio"), allow(dead_code))]
+    #[serde(default)]
+    pub sounds: HashMap<String, Option<String>>,
     pub types: HashMap<String, TypeAsset>,
     pub creatures: HashMap<String, CreatureAsset>,
     pub moves: HashMap<String, MoveAsset>,

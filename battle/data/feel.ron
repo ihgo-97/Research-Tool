@@ -1,0 +1,11 @@
+// Game feel: presentation-side tuning. Changes how hits look and respond,
+// never the simulation (balance lives in balance.ron / moves.ron).
+(
+    // Freeze both fighters briefly on solid hits: seconds = damage * per_damage.
+    hitstop: (min_damage: 8.0, per_damage: 0.004, max: 0.10),
+    // Camera shake strength in pixels; decay is pixels per second.
+    shake: (player_hit: 6.0, ko: 10.0, decay: 30.0),
+    flash_seconds: 0.08,
+    particles: (hit: 10, dodge: 12, dash: 6, ko: 32),
+    dash_buffer: 0.15,
+)

@@ -2,10 +2,15 @@
 //! deterministic `--screenshot` capture.
 
 use crate::assets::AssetDb;
-use crate::render::{self, Floater, Fx, SelectView, ARENA_X, ARENA_Y};
+use crate::audio::Sfx;
+use crate::feel::Feel;
+use crate::fx::Fx;
+use crate::render::{self, Gfx, SelectView, ARENA_X, ARENA_Y};
+use crate::sprites::Sprites;
 use combat::ai::AiController;
 use combat::{Battle, Event, GameData, Intent};
 use macroquad::prelude::*;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +33,8 @@ pub struct AppConfig {
     pub ai: String,
     pub seed: u64,
     pub screenshot: Option<Screenshot>,
+    pub assets_dir: PathBuf,
+    pub feel: Feel,
 }
 
 struct BattleScreen {
@@ -38,6 +45,7 @@ struct BattleScreen {
     acc: f32,
     fx: Fx,
     dash_buffer: f32,
+    paused: bool,
 }
 
 enum Screen {
@@ -48,6 +56,16 @@ enum Screen {
 const PLAYER: usize = 0;
 
 pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
+    let (sprites, warn_s) = Sprites::load(&cfg.assets_dir, &assets);
+    let (sfx, warn_a) = Sfx::load(&cfg.assets_dir, &assets).await;
+    for w in warn_s.iter().chain(&warn_a) {
+        eprintln!("warning: {w}");
+    }
+    let gfx = Gfx {
+        assets: &assets,
+        sprites: &sprites,
+    };
+    let feel = cfg.feel.clone();
     let mut ai_names: Vec<String> = data.balance.ai_profiles.keys().cloned().collect();
     ai_names.sort_by_key(|n| match n.as_str() {
         "easy" => 0,
@@ -64,7 +82,7 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
         Some(Scene::Battle) | Some(Scene::Result) => {
             let mut b = new_battle(&data, &cfg, &ai_names[ai_idx], seed, true);
             if shot.as_ref().map(|s| s.scene) == Some(Scene::Result) {
-                fast_forward(&mut b);
+                fast_forward(&mut b, &assets, &feel);
             }
             Screen::Battle(Box::new(b))
         }
@@ -110,7 +128,7 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
                 }
                 render::draw_select(
                     &data,
-                    &assets,
+                    &gfx,
                     &SelectView {
                         focus,
                         player: cfg.player,
@@ -122,42 +140,58 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
             Screen::Battle(bs) => {
                 let done = bs.battle.outcome().is_some();
                 if shot.is_none() {
-                    if is_key_pressed(KeyCode::Escape) {
-                        if done {
-                            break;
-                        }
-                        screen = Screen::Select;
-                        next_frame().await;
-                        continue;
+                    let pause_key = is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::P);
+                    if done && is_key_pressed(KeyCode::Escape) {
+                        break;
                     }
-                    if done && is_key_pressed(KeyCode::R) {
+                    if !done && pause_key {
+                        bs.paused = !bs.paused;
+                    }
+                    if (done || bs.paused) && is_key_pressed(KeyCode::R) {
                         seed = seed.wrapping_add(1);
                         **bs = new_battle(&data, &cfg, &ai_names[ai_idx], seed, false);
-                    } else if done && is_key_pressed(KeyCode::Enter) {
+                    } else if (done || bs.paused) && is_key_pressed(KeyCode::Enter) {
                         screen = Screen::Select;
                         next_frame().await;
                         continue;
+                    } else if bs.paused && is_key_pressed(KeyCode::X) {
+                        break;
                     }
                 }
-                if shot.is_some() {
-                    // Deterministic: exactly one simulation tick per rendered frame.
-                    step_battle(bs);
-                } else {
-                    // Edge-triggered input is polled per frame (a frame may run zero ticks)
-                    // and buffered briefly so an early press still dashes.
-                    if is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::RightShift) {
-                        bs.dash_buffer = 0.15;
+                // In screenshot mode time advances exactly one tick per frame so
+                // captures are deterministic.
+                let frame_dt = if shot.is_some() { data.dt() } else { dt };
+                if !bs.paused {
+                    if shot.is_none()
+                        && (is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::RightShift))
+                    {
+                        // Edge-triggered input is polled per frame (a frame may run
+                        // zero ticks) and buffered so an early press still dashes.
+                        bs.dash_buffer = feel.dash_buffer;
                     }
-                    bs.acc += dt;
-                    while bs.acc >= data.dt() {
-                        bs.acc -= data.dt();
-                        step_battle(bs);
+                    if bs.fx.hitstop > 0.0 {
+                        bs.fx.hitstop = (bs.fx.hitstop - frame_dt).max(0.0);
+                    } else if shot.is_some() {
+                        step_battle(bs, &assets, &feel);
+                    } else {
+                        bs.acc += dt;
+                        while bs.acc >= data.dt() && bs.fx.hitstop <= 0.0 {
+                            bs.acc -= data.dt();
+                            step_battle(bs, &assets, &feel);
+                        }
+                        if bs.fx.hitstop > 0.0 {
+                            bs.acc = 0.0;
+                        }
                     }
-                    bs.dash_buffer = (bs.dash_buffer - dt).max(0.0);
+                    bs.dash_buffer = (bs.dash_buffer - frame_dt).max(0.0);
+                    bs.fx.update(frame_dt, &feel);
                 }
-                bs.fx.update(if shot.is_some() { data.dt() } else { dt });
-                render::draw_battle(&bs.battle, &assets, &bs.fx, PLAYER);
+                sfx.play_cues(&mut bs.fx.cues);
+                render::draw_battle(&bs.battle, &gfx, &bs.fx, PLAYER);
                 render::draw_result(&bs.battle, &assets, PLAYER);
+                if bs.paused {
+                    render::draw_pause();
+                }
             }
         }
 
@@ -181,22 +215,17 @@ fn new_battle(data: &Arc<GameData>, cfg: &AppConfig, ai: &str, seed: u64, autopl
         enemy_ai: AiController::new(profile.clone(), seed.wrapping_mul(7919).wrapping_add(1)),
         autoplay: autoplay.then(|| AiController::new(profile, seed.wrapping_mul(7919).wrapping_add(2))),
         acc: 0.0,
-        fx: Fx {
-            flash: vec![0.0; n],
-            ..Default::default()
-        },
+        fx: Fx::new(n, seed),
         dash_buffer: 0.0,
+        paused: false,
     }
 }
 
-fn fast_forward(bs: &mut BattleScreen) {
+fn fast_forward(bs: &mut BattleScreen, assets: &AssetDb, feel: &Feel) {
     while bs.battle.outcome().is_none() {
-        step_battle(bs);
+        step_battle(bs, assets, feel);
     }
-    bs.fx = Fx {
-        flash: vec![0.0; bs.battle.fighter_count()],
-        ..Default::default()
-    };
+    bs.fx = Fx::new(bs.battle.fighter_count(), 0);
 }
 
 fn player_intent(bs: &mut BattleScreen) -> Intent {
@@ -236,61 +265,17 @@ fn player_intent(bs: &mut BattleScreen) -> Intent {
     }
 }
 
-fn step_battle(bs: &mut BattleScreen) {
+fn step_battle(bs: &mut BattleScreen, assets: &AssetDb, feel: &Feel) {
     if bs.battle.outcome().is_some() {
         return;
     }
     let p = player_intent(bs);
     let e = bs.enemy_ai.update(&bs.battle, 1);
     bs.battle.step(&[p, e]);
-    for ev in bs.battle.events() {
-        match *ev {
-            Event::Hit { target, damage, type_mult, pos, .. } => {
-                let (color, suffix) = if type_mult > 1.01 {
-                    (Color::new(1.0, 0.6, 0.2, 1.0), "!")
-                } else if type_mult < 0.99 {
-                    (Color::new(0.65, 0.68, 0.72, 1.0), "")
-                } else {
-                    (WHITE, "")
-                };
-                bs.fx.floaters.push(Floater {
-                    pos,
-                    text: format!("{:.0}{suffix}", damage),
-                    color,
-                    size: if type_mult > 1.01 { 30.0 } else { 24.0 },
-                    t: 0.0,
-                });
-                if let Some(f) = bs.fx.flash.get_mut(target) {
-                    *f = 0.08;
-                }
-                if target == PLAYER {
-                    bs.fx.shake = bs.fx.shake.max(6.0);
-                }
-            }
-            Event::Dodged { pos, .. } => {
-                bs.fx.floaters.push(Floater {
-                    pos,
-                    text: "dodge".into(),
-                    color: Color::new(0.6, 0.9, 1.0, 1.0),
-                    size: 20.0,
-                    t: 0.0,
-                });
-            }
-            Event::Dash { fighter } if fighter == PLAYER => bs.dash_buffer = 0.0,
-            Event::Fainted { fighter } => {
-                let v = bs.battle.fighter(fighter);
-                bs.fx.floaters.push(Floater {
-                    pos: v.body.pos,
-                    text: "KO".into(),
-                    color: Color::new(1.0, 0.3, 0.3, 1.0),
-                    size: 40.0,
-                    t: 0.0,
-                });
-                bs.fx.shake = 10.0;
-            }
-            _ => {}
-        }
+    if bs.battle.events().iter().any(|ev| matches!(ev, Event::Dash { fighter } if *fighter == PLAYER)) {
+        bs.dash_buffer = 0.0;
     }
+    bs.fx.on_events(&bs.battle, assets, feel, PLAYER);
 }
 
 fn save_screenshot(path: &str) {
