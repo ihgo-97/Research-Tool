@@ -25,6 +25,9 @@ pub struct CreatureAsset {
 #[derive(Debug, Clone, Deserialize)]
 pub struct MoveAsset {
     pub name: String,
+    /// Visual effect id (crates/game/src/vfx.rs); empty = generic.
+    #[serde(default)]
+    pub vfx: String,
     /// Not played yet: audio is disabled until sounds exist.
     #[allow(dead_code)]
     #[serde(default)]
@@ -156,6 +159,10 @@ impl AssetDb {
             Some(s) => (&s.badge, &s.inflicted, s.color),
             None => (id, id, FALLBACK),
         }
+    }
+
+    pub fn move_vfx(&self, id: &str) -> &str {
+        self.moves.get(id).map(|m| m.vfx.as_str()).unwrap_or("")
     }
 
     pub fn move_name<'a>(&'a self, id: &'a str) -> &'a str {

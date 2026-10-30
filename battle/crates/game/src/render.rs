@@ -183,9 +183,13 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
     draw_rectangle(ox, oy, a.width, 6.0, Color::new(0.0, 0.0, 0.1, 0.12));
 
     // Ground-level effects: telegraphs, bursts, melee arcs.
+    // Battle time (not wall time) keeps screenshots deterministic.
+    let time = battle.time();
     for ar in battle.areas() {
         let col = move_color(data, assets, ar.mv);
+        let kind = assets.move_vfx(&data.moves[ar.mv].asset);
         let c = to_screen(ar.center, shake);
+        let active_prog = 1.0 - (ar.active / ar.active_total.max(1e-3)).clamp(0.0, 1.0);
         match ar.shape {
             Shape::Circle { radius } => {
                 if !ar.is_active() {
@@ -194,16 +198,17 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
                     draw_circle(c.x, c.y, radius, with_alpha(col, 0.12));
                     draw_circle(c.x, c.y, radius * prog, with_alpha(col, 0.25));
                     draw_circle_lines(c.x, c.y, radius, 3.0, with_alpha(shade(col, 0.6), 0.6 + 0.4 * pulse));
+                    crate::vfx::burst_telegraph(kind, c, radius, prog, col, time);
                 } else {
-                    draw_circle(c.x, c.y, radius, with_alpha(col, 0.55));
-                    draw_circle(c.x, c.y, radius * 0.6, with_alpha(shade(col, 1.4), 0.5));
+                    draw_circle(c.x, c.y, radius, with_alpha(col, 0.4));
                     draw_circle_lines(c.x, c.y, radius, 4.0, WHITE);
+                    crate::vfx::burst_active(kind, c, radius, active_prog, col, time);
                 }
             }
             Shape::Arc { range, dir, half_arc } => {
                 let fade = (ar.active / ar.active_total.max(1e-3)).clamp(0.2, 1.0);
-                draw_arc_sector(c, range, dir.angle(), half_arc, with_alpha(col, 0.5 * fade));
-                draw_arc_sector(c, range * 0.6, dir.angle(), half_arc * 0.8, with_alpha(shade(col, 1.5), 0.45 * fade));
+                draw_arc_sector(c, range, dir.angle(), half_arc, with_alpha(col, 0.3 * fade));
+                crate::vfx::melee(kind, c - vec2(0.0, AIR * 0.5), range, dir.angle(), half_arc, active_prog, col);
             }
         }
     }
@@ -264,12 +269,8 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
     for p in &projectiles {
         let col = move_color(data, assets, p.mv);
         let s = to_screen(p.pos, shake) - vec2(0.0, AIR);
-        let back = p.vel.normalize_or_zero();
-        let tail = s - vec2(back.x, back.y) * p.radius * 3.0;
-        draw_line(tail.x, tail.y, s.x, s.y, p.radius * 1.4, with_alpha(col, 0.45));
-        draw_circle(s.x, s.y, p.radius + 2.0, shade(col, 0.55));
-        draw_circle(s.x, s.y, p.radius, col);
-        draw_circle(s.x - p.radius * 0.25, s.y - p.radius * 0.25, p.radius * 0.45, Color::new(1.0, 1.0, 1.0, 0.9));
+        let d = p.vel.normalize_or_zero();
+        crate::vfx::projectile(assets.move_vfx(&data.moves[p.mv].asset), s, vec2(d.x, d.y), p.radius, col, time);
     }
 
     for p in &fx.particles {
@@ -580,6 +581,50 @@ fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
             let frac = (s.remaining / mv.cooldown).clamp(0.0, 1.0);
             draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.05, 0.05, 0.1, 0.6));
             text_outlined(&format!("{:.1}", s.remaining), x + 4.0, y + 44.0, 18.0, TEXT, INK);
+        }
+    }
+}
+
+/// Gallery of every move's effect at several stages (`--scene vfx`).
+pub fn draw_vfx_gallery(data: &GameData, gfx: &Gfx, t: f32) {
+    let assets = gfx.assets;
+    clear_background(Color::new(0.88, 0.92, 0.88, 1.0));
+    text_outlined("MOVE EFFECTS", 40.0, 40.0, 32.0, TEXT, INK);
+    let cols = 4;
+    let (cw, ch) = (300.0, 170.0);
+    for (i, m) in data.moves.iter().enumerate() {
+        let (cx, cy) = (40.0 + (i % cols) as f32 * cw, 60.0 + (i / cols) as f32 * ch);
+        draw_rectangle_lines(cx, cy, cw - 10.0, ch - 10.0, 2.0, INK);
+        let col = move_color(data, assets, i);
+        let kind = assets.move_vfx(&m.asset);
+        draw_text(&format!("{}  [{}]", assets.move_name(&m.asset), if kind.is_empty() { "-" } else { kind }), cx + 8.0, cy + 20.0, 18.0, INK);
+        let mid = vec2(cx + cw * 0.5 - 5.0, cy + 95.0);
+        match m.shape {
+            MoveShape::Projectile { radius, .. } => {
+                for k in 0..3 {
+                    let s = mid + vec2(-90.0 + k as f32 * 90.0, 0.0);
+                    crate::vfx::projectile(kind, s, vec2(1.0, 0.0), radius, col, t + k as f32 * 0.07);
+                }
+            }
+            MoveShape::Melee { range, arc_deg, .. } => {
+                for k in 0..2 {
+                    let c = mid + vec2(-110.0 + k as f32 * 120.0, 20.0);
+                    let prog = [0.3, 0.7][k];
+                    draw_arc_sector(c, range, 0.0, arc_deg.to_radians() * 0.5, with_alpha(col, 0.2));
+                    crate::vfx::melee(kind, c, range, 0.0, arc_deg.to_radians() * 0.5, prog, col);
+                }
+            }
+            MoveShape::Burst { radius, .. } => {
+                let r = radius.min(60.0);
+                let a = mid + vec2(-70.0, 10.0);
+                draw_circle(a.x, a.y, r, with_alpha(col, 0.12));
+                draw_circle_lines(a.x, a.y, r, 3.0, with_alpha(shade(col, 0.6), 0.9));
+                crate::vfx::burst_telegraph(kind, a, r, 0.6, col, t);
+                let b = mid + vec2(75.0, 10.0);
+                draw_circle(b.x, b.y, r, with_alpha(col, 0.4));
+                draw_circle_lines(b.x, b.y, r, 4.0, WHITE);
+                crate::vfx::burst_active(kind, b, r, 0.35, col, t);
+            }
         }
     }
 }

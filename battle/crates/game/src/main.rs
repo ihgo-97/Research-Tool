@@ -13,7 +13,7 @@
 //!   --ai NAME                            AI profile from data/balance.ron (default normal)
 //!   --ai-b NAME                          headless: right-side AI profile (skill-gap tests)
 //!   --seed N                             RNG seed (default 1)
-//!   --scene select|battle|result         screenshot: which screen to capture
+//!   --scene select|battle|result|vfx     screenshot: which screen to capture (vfx = effect gallery)
 //!   --data DIR  --assets DIR             data/asset folders (default ./data, ./assets)
 //! ```
 
@@ -25,6 +25,7 @@ mod fx;
 mod headless;
 mod render;
 mod sprites;
+mod vfx;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -89,6 +90,7 @@ fn parse_args() -> Result<Args, String> {
                     "select" => app::Scene::Select,
                     "battle" => app::Scene::Battle,
                     "result" => app::Scene::Result,
+                    "vfx" => app::Scene::Vfx,
                     s => return Err(format!("unknown scene '{s}'")),
                 }
             }

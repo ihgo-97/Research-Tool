@@ -19,6 +19,8 @@ pub enum Scene {
     Battle,
     /// Battle fast-forwarded to its end, showing the result screen.
     Result,
+    /// Gallery of every move's visual effect.
+    Vfx,
 }
 
 pub struct Screenshot {
@@ -126,6 +128,18 @@ pub async fn run(data: Arc<GameData>, assets: AssetDb, mut cfg: AppConfig) {
 
     loop {
         let dt = get_frame_time().min(0.1);
+        if shot.as_ref().map(|s| s.scene) == Some(Scene::Vfx) {
+            render::draw_vfx_gallery(&data, &gfx, frame as f32 * data.dt());
+            if let Some(s) = &shot {
+                if frame >= s.frame {
+                    save_screenshot(&s.path);
+                    break;
+                }
+            }
+            frame += 1;
+            next_frame().await;
+            continue;
+        }
         match &mut screen {
             Screen::Select => {
                 let rows = select_rows(&cfg);
