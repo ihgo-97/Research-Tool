@@ -1,6 +1,7 @@
 // Moves. `asset` keys into assets/assets.ron for display name/colour/sound.
 // power: base damage; cooldown/windup/recovery: seconds; knockback: units/s
 // impulse; hitstun: seconds the target loses control (0 = no flinch).
+// status: optional (id, chance) applied on hit; ids are defined in balance.ron.
 [
     // ------------------------------------------------------------ normal
     (id: "tackle", asset: "tackle", type: "normal", power: 40.0, cooldown: 1.2,
@@ -13,12 +14,15 @@
     // -------------------------------------------------------------- fire
     (id: "ember", asset: "ember", type: "fire", power: 45.0, cooldown: 1.5,
      windup: 0.15, recovery: 0.15, knockback: 100.0, hitstun: 0.0,
+     status: Some((id: "burn", chance: 0.1)),
      shape: Projectile(speed: 540.0, radius: 11.0, range: 560.0, count: 1, spread_deg: 0.0, pierce: false)),
     (id: "fire_fang", asset: "fire_fang", type: "fire", power: 60.0, cooldown: 3.0,
      windup: 0.18, recovery: 0.25, knockback: 320.0, hitstun: 0.25,
+     status: Some((id: "burn", chance: 0.2)),
      shape: Melee(range: 66.0, arc_deg: 90.0, active: 0.12, lunge: 340.0)),
     (id: "flame_burst", asset: "flame_burst", type: "fire", power: 80.0, cooldown: 6.0,
      windup: 0.30, recovery: 0.35, knockback: 420.0, hitstun: 0.35,
+     status: Some((id: "burn", chance: 0.3)),
      shape: Burst(radius: 125.0, delay: 0.20, active: 0.15, max_distance: 0.0)),
 
     // ------------------------------------------------------------- water
@@ -38,14 +42,17 @@
      shape: Melee(range: 120.0, arc_deg: 70.0, active: 0.14, lunge: 0.0)),
     (id: "spore_burst", asset: "spore_burst", type: "grass", power: 70.0, cooldown: 5.5,
      windup: 0.35, recovery: 0.30, knockback: 300.0, hitstun: 0.60,
+     status: Some((id: "sleep", chance: 0.5)),
      shape: Burst(radius: 115.0, delay: 0.20, active: 0.20, max_distance: 0.0)),
 
     // ---------------------------------------------------------- electric
     (id: "spark", asset: "spark", type: "electric", power: 38.0, cooldown: 1.2,
      windup: 0.08, recovery: 0.10, knockback: 90.0, hitstun: 0.06,
+     status: Some((id: "paralysis", chance: 0.1)),
      shape: Projectile(speed: 760.0, radius: 8.0, range: 480.0, count: 1, spread_deg: 0.0, pierce: false)),
     (id: "thunder_drop", asset: "thunder_drop", type: "electric", power: 110.0, cooldown: 5.5,
      windup: 0.25, recovery: 0.30, knockback: 350.0, hitstun: 0.40,
+     status: Some((id: "paralysis", chance: 0.35)),
      shape: Burst(radius: 90.0, delay: 0.60, active: 0.15, max_distance: 420.0)),
 
     // -------------------------------------------------------------- rock

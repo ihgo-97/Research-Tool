@@ -2,7 +2,7 @@
 //! feed one [`Intent`] per fighter per tick and read state/events back.
 
 use crate::damage::{self, AttackerStats};
-use crate::data::{CreatureId, GameData, MoveId, MoveShape};
+use crate::data::{CreatureId, GameData, MoveId, MoveShape, StatusId};
 use crate::hitbox::{self, Shape};
 use crate::math::Vec2;
 use crate::rng::Rng;
@@ -66,6 +66,14 @@ pub struct FighterStats {
     pub dodges: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActiveStatus {
+    pub status: StatusId,
+    pub remaining: f32,
+    /// Fighter credited with damage over time.
+    pub source: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct Fighter {
     pub index: usize,
@@ -78,6 +86,7 @@ pub struct Fighter {
     pub iframes: f32,
     pub action: Action,
     pub facing: Vec2,
+    pub status: Option<ActiveStatus>,
     pub stats: FighterStats,
 }
 
@@ -135,6 +144,9 @@ pub enum Event {
     Dodged { fighter: usize, pos: Vec2 },
     Dash { fighter: usize },
     Fainted { fighter: usize },
+    StatusApplied { fighter: usize, status: StatusId },
+    /// `broken`: ended early by taking a hit (e.g. waking from sleep).
+    StatusEnded { fighter: usize, status: StatusId, broken: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -221,6 +233,7 @@ impl Battle {
                 iframes: 0.0,
                 action: Action::Idle,
                 facing: (center - pos).normalize_or_zero(),
+                status: None,
                 stats: FighterStats::default(),
             };
             fighters.push(world.spawn((body, fighter)));
@@ -312,6 +325,7 @@ impl Battle {
         let bal = &data.balance;
         let mut launches = Vec::new();
         let mut events = Vec::new();
+        let mut dot_credit: Vec<(usize, f32)> = Vec::new();
         for (i, &e) in self.fighters.iter().enumerate() {
             let intent = intents.get(i).copied().unwrap_or_default();
             let mut q = self.world.query_one::<(&mut Body, &mut Fighter)>(e);
@@ -327,6 +341,36 @@ impl Battle {
             f.dash_cooldown = (f.dash_cooldown - dt).max(0.0);
             f.iframes = (f.iframes - dt).max(0.0);
 
+            // Status: damage over time, expiry.
+            let mut stunned = false;
+            let (mut speed_mult, mut windup_mult, mut attack_mult) = (1.0, 1.0, 1.0);
+            if let Some(st) = &mut f.status {
+                let def = &data.statuses[st.status];
+                let dot = (f.max_hp * def.damage_per_sec * dt).min(f.hp);
+                if dot > 0.0 {
+                    f.hp -= dot;
+                    dot_credit.push((st.source, dot));
+                }
+                st.remaining -= dt;
+                let id = st.status;
+                if f.hp <= 0.0 {
+                    f.hp = 0.0;
+                    f.action = Action::Fainted;
+                    events.push(Event::Fainted { fighter: i });
+                    body.vel = Vec2::ZERO;
+                    continue;
+                }
+                if st.remaining <= 0.0 {
+                    f.status = None;
+                    events.push(Event::StatusEnded { fighter: i, status: id, broken: false });
+                } else {
+                    stunned = def.stun;
+                    speed_mult = def.speed_mult;
+                    windup_mult = def.windup_mult;
+                    attack_mult = def.attack_mult;
+                }
+            }
+
             // Advance the current action.
             f.action = match f.action {
                 Action::Windup { slot, t, aim } if t - dt <= 0.0 => {
@@ -339,7 +383,7 @@ impl Battle {
                         radius: body.radius,
                         aim,
                         attacker: AttackerStats {
-                            attack: creature.attack,
+                            attack: creature.attack * attack_mult,
                             types: creature.types.clone(),
                         },
                     });
@@ -362,6 +406,7 @@ impl Battle {
                 a => a,
             };
 
+            let intent = if stunned { Intent { aim: intent.aim, ..Default::default() } } else { intent };
             let move_dir = intent.move_dir.clamp_length(1.0);
             let aim_dir = (intent.aim - body.pos).normalize_or_zero();
 
@@ -387,7 +432,7 @@ impl Battle {
                     f.slots[slot].remaining = data.moves[mv].cooldown;
                     f.action = Action::Windup {
                         slot,
-                        t: data.moves[mv].windup,
+                        t: data.moves[mv].windup * windup_mult,
                         aim: intent.aim,
                     };
                     if aim_dir != Vec2::ZERO {
@@ -397,14 +442,15 @@ impl Battle {
                 }
             }
 
-            if f.action == Action::Idle && aim_dir != Vec2::ZERO {
+            if f.action == Action::Idle && aim_dir != Vec2::ZERO && !stunned {
                 f.facing = aim_dir;
             }
 
+            let speed = creature.speed * speed_mult;
             let desired = match f.action {
-                Action::Idle => move_dir * creature.speed,
-                Action::Windup { .. } | Action::Recovery { .. } => move_dir * creature.speed * bal.attack_move_mult,
-                Action::Dash { dir, .. } => dir * creature.speed * bal.dash.speed,
+                Action::Idle => move_dir * speed,
+                Action::Windup { .. } | Action::Recovery { .. } => move_dir * speed * bal.attack_move_mult,
+                Action::Dash { dir, .. } => dir * speed * bal.dash.speed,
                 Action::Hitstun { .. } | Action::Fainted => Vec2::ZERO,
             };
             if matches!(f.action, Action::Dash { .. }) {
@@ -415,6 +461,11 @@ impl Battle {
             }
         }
         self.events.extend(events);
+        for (src, dmg) in dot_credit {
+            if let Ok(mut f) = self.world.get::<&mut Fighter>(self.fighters[src]) {
+                f.stats.damage_dealt += dmg;
+            }
+        }
         launches
     }
 
@@ -697,8 +748,40 @@ impl Battle {
                     f.hp = 0.0;
                     f.action = Action::Fainted;
                     self.events.push(Event::Fainted { fighter: h.target });
-                } else if mv.hitstun > 0.0 {
-                    f.action = Action::Hitstun { t: mv.hitstun };
+                } else {
+                    if mv.hitstun > 0.0 {
+                        f.action = Action::Hitstun { t: mv.hitstun };
+                    }
+                    // Hits wake sleepers (or end any break-on-hit status)...
+                    if let Some(st) = f.status {
+                        if dealt > 0.0 && data.statuses[st.status].break_on_hit {
+                            f.status = None;
+                            self.events.push(Event::StatusEnded {
+                                fighter: h.target,
+                                status: st.status,
+                                broken: true,
+                            });
+                        }
+                    }
+                    // ...and may inflict one, if the target has none.
+                    if let Some(proc_) = mv.status {
+                        let def = &data.statuses[proc_.status];
+                        let immune = c.types.iter().any(|t| def.immune_types.contains(t));
+                        if f.status.is_none() && !immune && self.rng.chance(proc_.chance) {
+                            f.status = Some(ActiveStatus {
+                                status: proc_.status,
+                                remaining: def.duration,
+                                source: h.attacker,
+                            });
+                            if def.stun {
+                                f.action = Action::Idle;
+                            }
+                            self.events.push(Event::StatusApplied {
+                                fighter: h.target,
+                                status: proc_.status,
+                            });
+                        }
+                    }
                 }
                 (dealt, r.type_mult)
             };

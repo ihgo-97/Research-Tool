@@ -155,6 +155,33 @@ impl Fx {
                     self.shake = feel.shake.ko;
                     self.cues.push("ko");
                 }
+                Event::StatusApplied { fighter, status } => {
+                    let (_, text, col) = assets.status(&data.statuses[status].id);
+                    let pos = battle.fighter(fighter).body.pos;
+                    self.floaters.push(Floater {
+                        pos: pos - Vec2::new(0.0, 22.0),
+                        text: text.to_string(),
+                        color: rgb(col, 1.0),
+                        size: 22.0,
+                        t: 0.0,
+                    });
+                    self.burst(pos, 14, (60.0, 160.0), 0.5, 4.0, rgb(col, 1.0));
+                    self.cues.push("status");
+                }
+                Event::StatusEnded { fighter, status, broken } => {
+                    if broken {
+                        let (_, _, col) = assets.status(&data.statuses[status].id);
+                        let pos = battle.fighter(fighter).body.pos;
+                        let text = if data.statuses[status].stun { "WOKE UP!" } else { "BROKE FREE!" };
+                        self.floaters.push(Floater {
+                            pos: pos - Vec2::new(0.0, 22.0),
+                            text: text.into(),
+                            color: rgb(col, 1.0),
+                            size: 22.0,
+                            t: 0.0,
+                        });
+                    }
+                }
                 Event::MoveStarted { fighter, mv } => {
                     let m = &data.moves[mv];
                     if let Some(slot) = self.callouts.get_mut(fighter) {
@@ -165,6 +192,48 @@ impl Fx {
                         });
                     }
                 }
+            }
+        }
+    }
+
+    /// Ambient particles for fighters with a status; call once per tick.
+    pub fn emit_status(&mut self, battle: &Battle, assets: &AssetDb) {
+        let data = &*battle.data;
+        for i in 0..battle.fighter_count() {
+            let v = battle.fighter(i);
+            let Some(st) = v.fighter.status else { continue };
+            if !v.fighter.alive() || !self.rng.chance(0.25) {
+                continue;
+            }
+            let def = &data.statuses[st.status];
+            let (_, _, col) = assets.status(&def.id);
+            let r = v.body.radius;
+            let at = v.body.pos + Vec2::new(self.rng.range(-r, r), -self.rng.range(0.0, r * 1.5));
+            if def.stun {
+                // Drifting z's.
+                if self.rng.chance(0.15) {
+                    self.floaters.push(Floater {
+                        pos: v.body.pos + Vec2::new(r * 0.6, -r * 1.6),
+                        text: "z".into(),
+                        color: rgb(col, 1.0),
+                        size: 22.0,
+                        t: 0.0,
+                    });
+                }
+            } else {
+                let vel = if def.damage_per_sec > 0.0 {
+                    Vec2::new(self.rng.range(-15.0, 15.0), -70.0)
+                } else {
+                    Vec2::new(self.rng.range(-140.0, 140.0), self.rng.range(-140.0, 140.0))
+                };
+                self.particles.push(Particle {
+                    pos: at,
+                    vel,
+                    life: 0.4,
+                    max_life: 0.4,
+                    color: rgb(col, 1.0),
+                    size: 3.0,
+                });
             }
         }
     }

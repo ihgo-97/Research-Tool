@@ -88,6 +88,15 @@ fn type_badge(data: &GameData, assets: &AssetDb, t: usize, x: f32, y: f32, size:
     w
 }
 
+fn status_badge((badge, _, col): (&str, &str, Rgb), x: f32, y: f32, size: f32) -> f32 {
+    let c = rgb(col, 1.0);
+    let w = text_width(badge, size) + 8.0;
+    draw_rectangle(x - 1.0, y - 1.0, w + 2.0, size + 2.0, INK);
+    draw_rectangle(x, y, w, size, c);
+    draw_text(badge, x + 4.0, y + size * 0.82, size, INK);
+    w
+}
+
 fn hp_color(frac: f32) -> Color {
     if frac > 0.5 {
         Color::new(0.35, 0.86, 0.42, 1.0)
@@ -372,6 +381,9 @@ fn draw_fighter(data: &GameData, gfx: &Gfx, v: &FighterView, flash: bool, is_pla
         draw_rectangle(bx - 1.0, by - 1.0, w + 2.0, 7.0, INK);
         draw_rectangle(bx, by, w * frac, 5.0, hp_color(frac));
         draw_rectangle(bx, by, w * frac, 2.0, shade(hp_color(frac), 1.25));
+        if let Some(st) = v.fighter.status {
+            status_badge(assets.status(&data.statuses[st.status].id), bx + w + 4.0, by - 4.0, 12.0);
+        }
     }
 }
 
@@ -437,6 +449,9 @@ fn draw_top_bar(battle: &Battle, gfx: &Gfx, player: usize) {
         let mut bx = tx + text_width(&name, 22.0) + 12.0;
         for &t in &c.types {
             bx += type_badge(data, assets, t, bx, py + 5.0, 14.0) + 4.0;
+        }
+        if let Some(st) = v.fighter.status {
+            bx += status_badge(assets.status(&data.statuses[st.status].id), bx, py + 5.0, 14.0) + 4.0;
         }
         let tagc = if side == 0 { Color::new(0.35, 0.75, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.4, 1.0) };
         text_outlined(tag, bx + 6.0, py + 18.0, 14.0, tagc, INK);

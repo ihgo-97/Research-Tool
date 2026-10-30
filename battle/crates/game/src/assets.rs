@@ -31,6 +31,13 @@ pub struct MoveAsset {
     pub sound: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct StatusAsset {
+    pub badge: String,
+    pub inflicted: String,
+    pub color: Rgb,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct SheetRows {
     pub idle: u32,
@@ -83,6 +90,8 @@ pub struct AssetDb {
     pub sounds: HashMap<String, Option<String>>,
     #[serde(default)]
     pub arena_art: HashMap<String, ArenaArt>,
+    #[serde(default)]
+    pub statuses: HashMap<String, StatusAsset>,
     pub types: HashMap<String, TypeAsset>,
     pub creatures: HashMap<String, CreatureAsset>,
     pub moves: HashMap<String, MoveAsset>,
@@ -115,6 +124,11 @@ impl AssetDb {
                 out.push(format!("move '{}'", m.asset));
             }
         }
+        for st in &data.statuses {
+            if !self.statuses.contains_key(&st.id) {
+                out.push(format!("status '{}'", st.id));
+            }
+        }
         out
     }
 
@@ -132,6 +146,14 @@ impl AssetDb {
 
     pub fn creature_color(&self, id: &str) -> Rgb {
         self.creatures.get(id).map(|c| c.color).unwrap_or(FALLBACK)
+    }
+
+    /// (badge, inflicted text, colour) for a status id.
+    pub fn status<'a>(&'a self, id: &'a str) -> (&'a str, &'a str, Rgb) {
+        match self.statuses.get(id) {
+            Some(s) => (&s.badge, &s.inflicted, s.color),
+            None => (id, id, FALLBACK),
+        }
     }
 
     pub fn move_name<'a>(&'a self, id: &'a str) -> &'a str {

@@ -12,6 +12,7 @@ use std::path::Path;
 pub type TypeId = usize;
 pub type MoveId = usize;
 pub type CreatureId = usize;
+pub type StatusId = usize;
 
 #[derive(Debug)]
 pub struct DataError(pub String);
@@ -144,6 +145,21 @@ pub struct MoveDefRaw {
     pub knockback: f32,
     pub hitstun: f32,
     pub shape: MoveShape,
+    #[serde(default)]
+    pub status: Option<StatusProcRaw>,
+}
+
+/// "On hit, apply `id` with probability `chance`".
+#[derive(Debug, Clone, Deserialize)]
+pub struct StatusProcRaw {
+    pub id: String,
+    pub chance: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StatusProc {
+    pub status: StatusId,
+    pub chance: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +174,7 @@ pub struct MoveDef {
     pub knockback: f32,
     pub hitstun: f32,
     pub shape: MoveShape,
+    pub status: Option<StatusProc>,
 }
 
 impl MoveDef {
@@ -240,6 +257,51 @@ pub struct AiProfile {
     pub kite_range: f32,
 }
 
+/// A lingering condition (burn, paralysis, sleep...). Generic: any mix of
+/// damage over time, stat multipliers and stun.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StatusDefRaw {
+    pub duration: f32,
+    /// Fraction of max HP lost per second.
+    #[serde(default)]
+    pub damage_per_sec: f32,
+    /// Multiplier on outgoing damage.
+    #[serde(default = "one")]
+    pub attack_mult: f32,
+    /// Multiplier on movement speed.
+    #[serde(default = "one")]
+    pub speed_mult: f32,
+    /// Multiplier on move windup time.
+    #[serde(default = "one")]
+    pub windup_mult: f32,
+    /// No movement, moves or dashing while active.
+    #[serde(default)]
+    pub stun: bool,
+    /// Taking a hit ends the status (sleep).
+    #[serde(default)]
+    pub break_on_hit: bool,
+    /// Creatures of these types cannot get this status.
+    #[serde(default)]
+    pub immune_types: Vec<String>,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+#[derive(Debug, Clone)]
+pub struct StatusDef {
+    pub id: String,
+    pub duration: f32,
+    pub damage_per_sec: f32,
+    pub attack_mult: f32,
+    pub speed_mult: f32,
+    pub windup_mult: f32,
+    pub stun: bool,
+    pub break_on_hit: bool,
+    pub immune_types: Vec<TypeId>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Balance {
     pub tick_rate: u32,
@@ -255,6 +317,8 @@ pub struct Balance {
     /// Exponential knockback decay rate (1/s).
     pub knockback_decay: f32,
     pub dash: DashDef,
+    #[serde(default)]
+    pub statuses: HashMap<String, StatusDefRaw>,
     pub ai_profiles: HashMap<String, AiProfile>,
 }
 
@@ -282,6 +346,7 @@ pub struct ArenaDef {
 #[derive(Debug, Clone)]
 pub struct GameData {
     pub types: TypeChart,
+    pub statuses: Vec<StatusDef>,
     pub moves: Vec<MoveDef>,
     pub creatures: Vec<CreatureDef>,
     pub balance: Balance,
@@ -342,6 +407,32 @@ impl GameData {
                 .ok_or_else(|| DataError(format!("{ctx}: unknown type '{name}'")))
         };
 
+        let mut status_ids: Vec<&String> = raw.balance.statuses.keys().collect();
+        status_ids.sort();
+        let mut statuses = Vec::new();
+        for id in status_ids {
+            let d = &raw.balance.statuses[id];
+            let ctx = format!("status '{id}'");
+            if d.duration <= 0.0 {
+                return err(format!("{ctx}: duration must be > 0"));
+            }
+            let mut immune = Vec::new();
+            for t in &d.immune_types {
+                immune.push(ty(t, &ctx)?);
+            }
+            statuses.push(StatusDef {
+                id: id.clone(),
+                duration: d.duration,
+                damage_per_sec: d.damage_per_sec,
+                attack_mult: d.attack_mult,
+                speed_mult: d.speed_mult,
+                windup_mult: d.windup_mult,
+                stun: d.stun,
+                break_on_hit: d.break_on_hit,
+                immune_types: immune,
+            });
+        }
+
         let mut moves = Vec::new();
         for m in raw.moves {
             if moves.iter().any(|x: &MoveDef| x.id == m.id) {
@@ -355,7 +446,18 @@ impl GameData {
                     return err(format!("move '{}': projectile needs count>0, speed>0", m.id));
                 }
             }
+            let status = match &m.status {
+                Some(p) => Some(StatusProc {
+                    status: statuses
+                        .iter()
+                        .position(|s| s.id == p.id)
+                        .ok_or_else(|| DataError(format!("move '{}': unknown status '{}'", m.id, p.id)))?,
+                    chance: p.chance.clamp(0.0, 1.0),
+                }),
+                None => None,
+            };
             moves.push(MoveDef {
+                status,
                 element: ty(&m.element, &format!("move '{}'", m.id))?,
                 id: m.id,
                 asset: m.asset,
@@ -422,6 +524,7 @@ impl GameData {
 
         Ok(Self {
             types,
+            statuses,
             moves,
             creatures,
             balance: raw.balance,
@@ -435,6 +538,10 @@ impl GameData {
 
     pub fn move_id(&self, id: &str) -> Option<MoveId> {
         self.moves.iter().position(|m| m.id == id)
+    }
+
+    pub fn status_id(&self, id: &str) -> Option<StatusId> {
+        self.statuses.iter().position(|s| s.id == id)
     }
 
     pub fn ai_profile(&self, name: &str) -> Option<&AiProfile> {

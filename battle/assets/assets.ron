@@ -33,6 +33,13 @@
         "dodge": None,
         "dash": None,
         "ko": None,
+        "status": None,
+    },
+    // Status display: short HUD badge, pop-up text when inflicted, colour.
+    statuses: {
+        "burn":      (badge: "BRN", inflicted: "BURNED!", color: (240, 110, 48)),
+        "paralysis": (badge: "PAR", inflicted: "PARALYZED!", color: (236, 196, 40)),
+        "sleep":     (badge: "SLP", inflicted: "FELL ASLEEP!", color: (150, 150, 178)),
     },
     types: {
         "normal":   (name: "Normal",   color: (168, 168, 140)),

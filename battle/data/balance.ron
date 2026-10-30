@@ -16,6 +16,16 @@
         iframes: 0.16,
         cancels_recovery: true,
     ),
+    // Lingering conditions applied by moves (see `status` in moves.ron).
+    // One status at a time; a new one can't overwrite an existing one.
+    statuses: {
+        // Damage over time (fraction of max HP per second) and weaker attacks.
+        "burn": (duration: 4.0, damage_per_sec: 0.02, attack_mult: 0.85, immune_types: ["fire"]),
+        // Slower movement and slower windups.
+        "paralysis": (duration: 4.0, speed_mult: 0.6, windup_mult: 1.4, immune_types: ["electric"]),
+        // Can't act at all, but the first hit wakes you up.
+        "sleep": (duration: 2.0, stun: true, break_on_hit: true, immune_types: ["grass"]),
+    },
     ai_profiles: {
         "easy": (
             reaction_time: 0.35, dodge_chance: 0.25, threat_lookahead: 0.4,

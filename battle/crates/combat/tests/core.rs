@@ -278,3 +278,105 @@ fn ai_battles_finish_and_are_deterministic() {
         assert!(s1.stats[0].hits_landed + s1.stats[1].hits_landed > 0, "nobody landed a hit");
     }
 }
+
+// ----------------------------------------------------------------- statuses
+
+/// Shipped data, but every status proc always triggers.
+fn data_sure_procs() -> Arc<GameData> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/");
+    let read = |f: &str| std::fs::read_to_string(format!("{dir}{f}")).unwrap();
+    let moves = regex_lite_chance(&read("moves.ron"));
+    Arc::new(
+        GameData::from_strs(&read("types.ron"), &moves, &read("creatures.ron"), &read("balance.ron"), &read("arena.ron")).unwrap(),
+    )
+}
+
+fn regex_lite_chance(s: &str) -> String {
+    // Replace every `chance: <number>` with `chance: 1.0`.
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find("chance: ") {
+        out.push_str(&rest[..i + 8]);
+        rest = &rest[i + 8..];
+        let end = rest.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(rest.len());
+        out.push_str("1.0");
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Fire slot `slot` of fighter 0 at fighter 1 until it lands; returns events seen.
+fn land_hit(b: &mut Battle, slot: usize) -> Vec<Event> {
+    let mut seen = Vec::new();
+    for _ in 0..240 {
+        let aim = b.fighter(1).body.pos;
+        b.step(&[Intent { aim, use_move: Some(slot), ..Default::default() }, Intent::default()]);
+        seen.extend_from_slice(b.events());
+        if b.events().iter().any(|e| matches!(e, Event::Hit { attacker: 0, .. })) {
+            return seen;
+        }
+    }
+    panic!("never landed a hit");
+}
+
+#[test]
+fn burn_deals_damage_over_time_then_expires() {
+    let d = data_sure_procs();
+    let fire = d.creature_id("emberkit").unwrap();
+    let target = d.creature_id("tidepup").unwrap();
+    let mut b = Battle::new(d.clone(), &[fire, target], 1);
+    close_in(&mut b, 300.0);
+    let seen = land_hit(&mut b, 0); // Ember
+    assert!(seen.iter().any(|e| matches!(e, Event::StatusApplied { fighter: 1, .. })));
+    let burn = d.status_id("burn").unwrap();
+    assert_eq!(b.fighter(1).fighter.status.map(|s| s.status), Some(burn));
+    let hp = b.fighter(1).fighter.hp;
+    let mut ended = false;
+    for _ in 0..(d.statuses[burn].duration * d.balance.tick_rate as f32) as usize + 5 {
+        b.step(&[Intent::default(), Intent::default()]);
+        ended |= b.events().iter().any(|e| matches!(e, Event::StatusEnded { fighter: 1, broken: false, .. }));
+    }
+    let lost = hp - b.fighter(1).fighter.hp;
+    let expected = d.statuses[burn].damage_per_sec * d.statuses[burn].duration * b.fighter(1).fighter.max_hp;
+    assert!(ended, "burn should expire");
+    assert!((lost - expected).abs() < expected * 0.1, "lost {lost}, expected about {expected}");
+    assert!(b.fighter(1).fighter.status.is_none());
+}
+
+#[test]
+fn sleep_blocks_actions_and_breaks_on_hit() {
+    let d = data_sure_procs();
+    let grass = d.creature_id("sproutle").unwrap();
+    let target = d.creature_id("pebblor").unwrap();
+    let mut b = Battle::new(d.clone(), &[grass, target], 1);
+    close_in(&mut b, 60.0);
+    land_hit(&mut b, 2); // Spore Burst
+    let sleep = d.status_id("sleep").unwrap();
+    assert_eq!(b.fighter(1).fighter.status.map(|s| s.status), Some(sleep));
+    // Let knockback settle, then check a sleeping fighter ignores move and dash input.
+    for _ in 0..40 {
+        b.step(&[Intent::default(), Intent::default()]);
+    }
+    let p0 = b.fighter(1).body.pos;
+    let aim = b.fighter(0).body.pos;
+    for _ in 0..20 {
+        let wake_attempt = Intent { aim, use_move: Some(0), dash: true, move_dir: Vec2::X, ..Default::default() };
+        b.step(&[Intent::default(), wake_attempt]);
+        assert!(!b.events().iter().any(|e| matches!(e, Event::MoveStarted { fighter: 1, .. } | Event::Dash { fighter: 1 })));
+    }
+    assert!(b.fighter(1).body.pos.distance(p0) < 3.0, "sleeper should not walk");
+    // Wait for Tackle (slot 3) and hit: the sleeper wakes up.
+    let seen = land_hit(&mut b, 3);
+    assert!(seen.iter().any(|e| matches!(e, Event::StatusEnded { fighter: 1, broken: true, .. })));
+}
+
+#[test]
+fn type_immunity_prevents_status() {
+    let d = data_sure_procs();
+    let fire = d.creature_id("emberkit").unwrap();
+    let mut b = Battle::new(d.clone(), &[fire, fire], 1);
+    close_in(&mut b, 300.0);
+    let seen = land_hit(&mut b, 0);
+    assert!(!seen.iter().any(|e| matches!(e, Event::StatusApplied { .. })), "fire types can't be burned");
+}
