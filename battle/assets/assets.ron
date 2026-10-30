@@ -2,17 +2,28 @@
 // Paths are relative to this folder. A missing or broken sprite falls back to
 // a coloured circle; a missing sound is silent. Swap art here, never in code.
 (
-    // Creature sprite sheets: `columns` frames per row, one row per animation.
-    // Creatures face right (flipped when facing left). `body_fraction` is the
-    // creature's hurtbox diameter as a fraction of the frame size.
-    // The current sheets are generated placeholders: `cargo run --bin gen_sprites`.
+    // Creature sprite sheets: `columns` frames per row. Each animation starts
+    // at its `rows` entry and has one row per facing (down, up, side); side
+    // faces right and is mirrored for left. Frames are drawn at `pixel_scale`
+    // game units per pixel, with frame pixel `anchor` on the creature's centre.
+    // `portrait` is the HUD crop of the first idle-down frame.
+    // The current sheets are generated placeholders: `cargo run --release --bin gen_sprites`.
     sheet: (
-        frame_size: 48,
+        frame_size: 64,
         columns: 4,
-        rows: (idle: 0, walk: 1, attack: 2, hurt: 3),
+        rows: (idle: 0, walk: 3, attack: 6, hurt: 9),
+        facings: 3,
         fps: 8.0,
-        body_fraction: 0.56,
+        pixel_scale: 2.0,
+        anchor: (32.0, 46.0),
+        portrait: (x: 6.0, y: 4.0, w: 52.0, h: 48.0),
     ),
+    // Arena themes, chosen by `art` in data/arena.ron. `obstacle` is a strip of
+    // 64px rock variants drawn at pixel_scale.
+    arena_art: {
+        "snowfield": (ground: "arena/snow.png", obstacle: "arena/rocks_snow.png", snow: true, border: (120, 136, 168)),
+        "meadow":    (ground: "arena/grass.png", obstacle: "arena/rocks.png", snow: false, border: (70, 104, 60)),
+    },
     // Sound ids played on battle events (None = silent). Played only when built
     // with `--features audio`.
     sounds: {

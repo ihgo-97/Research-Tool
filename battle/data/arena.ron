@@ -1,5 +1,7 @@
 // Arena in world units (pixels at 1x zoom). Pillars block movement and projectiles.
 (
+    // Presentation theme id (assets/assets.ron `arena_art`).
+    art: "snowfield",
     width: 1200.0,
     height: 600.0,
     spawns: [(x: 230.0, y: 300.0), (x: 970.0, y: 300.0)],

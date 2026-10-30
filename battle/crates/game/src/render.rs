@@ -1,8 +1,11 @@
 //! All macroquad drawing. Reads simulation state; never mutates it.
+//!
+//! Style target: GBA/DS-era handheld battles: pixel sprites at an integer
+//! scale, light bordered panels, outlined text and move-name callouts.
 
 use crate::assets::{AssetDb, Rgb};
-use crate::fx::Fx;
-use crate::sprites::{pick_frame, Sprites};
+use crate::fx::{Fx, CALLOUT_LIFE};
+use crate::sprites::{pick_dir, pick_frame, Anim, Dir, Sprites};
 use combat::data::{GameData, MoveShape};
 use combat::hitbox::Shape;
 use combat::sim::{Action, Battle, FighterView};
@@ -18,26 +21,53 @@ pub const HUD_Y: f32 = 676.0;
 
 pub const PLAYER_KEYS: [&str; 4] = ["LMB / 1", "RMB / 2", "Q / 3", "E / 4"];
 
-const BG: Color = Color::new(0.07, 0.08, 0.10, 1.0);
-const PANEL: Color = Color::new(0.12, 0.13, 0.16, 1.0);
-const TEXT: Color = Color::new(0.92, 0.93, 0.95, 1.0);
-const DIM: Color = Color::new(0.55, 0.58, 0.63, 1.0);
+const BG: Color = Color::new(0.10, 0.11, 0.16, 1.0);
+const INK: Color = Color::new(0.16, 0.16, 0.22, 1.0);
+const PAPER: Color = Color::new(0.97, 0.97, 0.94, 1.0);
+const PAPER_EDGE: Color = Color::new(0.78, 0.80, 0.84, 1.0);
+const TEXT: Color = Color::new(0.96, 0.96, 0.98, 1.0);
+const DIM: Color = Color::new(0.60, 0.63, 0.70, 1.0);
+/// Height at which projectiles fly and numbers pop (3/4 view illusion).
+const AIR: f32 = 16.0;
 
 pub fn rgb(c: Rgb, a: f32) -> Color {
     Color::new(c.0 as f32 / 255.0, c.1 as f32 / 255.0, c.2 as f32 / 255.0, a)
 }
 
+fn with_alpha(c: Color, a: f32) -> Color {
+    Color::new(c.r, c.g, c.b, a)
+}
+
 fn shade(c: Color, k: f32) -> Color {
-    Color::new(c.r * k, c.g * k, c.b * k, c.a)
+    Color::new((c.r * k).min(1.0), (c.g * k).min(1.0), (c.b * k).min(1.0), c.a)
 }
 
 pub fn to_screen(p: combat::Vec2, shake: macroquad::math::Vec2) -> macroquad::math::Vec2 {
     vec2(ARENA_X + p.x + shake.x, ARENA_Y + p.y + shake.y)
 }
 
+pub fn text_width(t: &str, size: f32) -> f32 {
+    measure_text(t, None, size as u16, 1.0).width
+}
+
+/// Text with a 2px outline, the handheld-RPG look.
+pub fn text_outlined(t: &str, x: f32, y: f32, size: f32, fill: Color, outline: Color) {
+    let o = if size >= 40.0 { 3.0 } else if size >= 28.0 { 2.0 } else { 1.0 };
+    for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o), (-o, -o), (o, -o), (-o, o), (o, o)] {
+        draw_text(t, (x + dx).round(), (y + dy).round(), size, outline);
+    }
+    draw_text(t, x.round(), y.round(), size, fill);
+}
+
 pub fn text_centered(t: &str, cx: f32, y: f32, size: f32, color: Color) {
-    let d = measure_text(t, None, size as u16, 1.0);
-    draw_text(t, cx - d.width * 0.5, y, size, color);
+    text_outlined(t, cx - text_width(t, size) * 0.5, y, size, color, with_alpha(INK, color.a));
+}
+
+/// Light bordered panel like the classic handheld battle boxes.
+fn panel(x: f32, y: f32, w: f32, h: f32) {
+    draw_rectangle(x - 2.0, y - 2.0, w + 4.0, h + 4.0, INK);
+    draw_rectangle(x, y, w, h, PAPER);
+    draw_rectangle(x, y + h - 4.0, w, 4.0, PAPER_EDGE);
 }
 
 fn type_id_color(data: &GameData, assets: &AssetDb, t: usize) -> Color {
@@ -48,10 +78,49 @@ fn move_color(data: &GameData, assets: &AssetDb, mv: usize) -> Color {
     type_id_color(data, assets, data.moves[mv].element)
 }
 
+fn type_badge(data: &GameData, assets: &AssetDb, t: usize, x: f32, y: f32, size: f32) -> f32 {
+    let name = assets.type_name(&data.types.names[t]).to_uppercase();
+    let col = type_id_color(data, assets, t);
+    let w = text_width(&name, size) + 10.0;
+    draw_rectangle(x - 1.0, y - 1.0, w + 2.0, size + 2.0, shade(col, 0.5));
+    draw_rectangle(x, y, w, size, col);
+    text_outlined(&name, x + 5.0, y + size * 0.78, size, TEXT, shade(col, 0.45));
+    w
+}
+
+fn hp_color(frac: f32) -> Color {
+    if frac > 0.5 {
+        Color::new(0.35, 0.86, 0.42, 1.0)
+    } else if frac > 0.2 {
+        Color::new(0.97, 0.80, 0.22, 1.0)
+    } else {
+        Color::new(0.94, 0.32, 0.26, 1.0)
+    }
+}
+
+/// GBA-style HP bar: "HP" tag, dark frame, two-tone fill.
+fn hp_bar(x: f32, y: f32, w: f32, frac: f32) {
+    let tag = 26.0;
+    draw_rectangle(x, y, w + tag, 12.0, INK);
+    draw_rectangle(x + 2.0, y + 2.0, tag - 4.0, 8.0, Color::new(0.96, 0.66, 0.20, 1.0));
+    draw_text("HP", x + 4.0, y + 10.0, 12.0, INK);
+    let bx = x + tag;
+    draw_rectangle(bx, y + 2.0, w - 2.0, 8.0, Color::new(0.30, 0.30, 0.34, 1.0));
+    let c = hp_color(frac);
+    let fw = (w - 2.0) * frac.clamp(0.0, 1.0);
+    draw_rectangle(bx, y + 2.0, fw, 8.0, c);
+    draw_rectangle(bx, y + 2.0, fw, 3.0, shade(c, 1.25));
+}
+
 /// Everything the renderer needs besides the battle itself.
 pub struct Gfx<'a> {
     pub assets: &'a AssetDb,
     pub sprites: &'a Sprites,
+}
+
+enum Drawable {
+    Fighter(usize),
+    Rock(usize),
 }
 
 pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
@@ -65,29 +134,46 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
         vec2(0.0, 0.0)
     };
 
-    // Floor.
     let a = &data.arena;
-    draw_rectangle(ARENA_X + shake.x, ARENA_Y + shake.y, a.width, a.height, Color::new(0.16, 0.19, 0.17, 1.0));
-    let grid = Color::new(1.0, 1.0, 1.0, 0.04);
-    let mut x = 0.0;
-    while x <= a.width {
-        draw_line(ARENA_X + x + shake.x, ARENA_Y + shake.y, ARENA_X + x + shake.x, ARENA_Y + a.height + shake.y, 1.0, grid);
-        x += 50.0;
-    }
-    let mut y = 0.0;
-    while y <= a.height {
-        draw_line(ARENA_X + shake.x, ARENA_Y + y + shake.y, ARENA_X + a.width + shake.x, ARENA_Y + y + shake.y, 1.0, grid);
-        y += 50.0;
-    }
-    draw_rectangle_lines(ARENA_X + shake.x, ARENA_Y + shake.y, a.width, a.height, 3.0, Color::new(0.4, 0.45, 0.42, 1.0));
-    for p in &a.pillars {
-        let s = to_screen(p.pos, shake);
-        draw_circle(s.x, s.y + 4.0, p.radius, Color::new(0.0, 0.0, 0.0, 0.3));
-        draw_circle(s.x, s.y, p.radius, Color::new(0.36, 0.37, 0.40, 1.0));
-        draw_circle_lines(s.x, s.y, p.radius, 2.0, Color::new(0.5, 0.52, 0.55, 1.0));
-    }
+    let art = assets.arena_art.get(&a.art);
+    let tex = gfx.sprites.arena(&a.art);
+    let (ox, oy) = (ARENA_X + shake.x, ARENA_Y + shake.y);
 
-    // Areas: telegraphs, then active hitboxes.
+    // Border bank and ground.
+    let border = art.map(|b| rgb(b.border, 1.0)).unwrap_or(Color::new(0.3, 0.35, 0.3, 1.0));
+    draw_rectangle(ox - 10.0, oy - 10.0, a.width + 20.0, a.height + 20.0, shade(border, 0.6));
+    draw_rectangle(ox - 6.0, oy - 6.0, a.width + 12.0, a.height + 12.0, border);
+    if let Some(t) = tex {
+        let tile = t.ground.width() * gfx.sprites.layout.pixel_scale;
+        let mut y = 0.0;
+        while y < a.height {
+            let mut x = 0.0;
+            while x < a.width {
+                let w = tile.min(a.width - x);
+                let h = tile.min(a.height - y);
+                let sc = gfx.sprites.layout.pixel_scale;
+                draw_texture_ex(
+                    &t.ground,
+                    ox + x,
+                    oy + y,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(w, h)),
+                        source: Some(Rect::new(0.0, 0.0, w / sc, h / sc)),
+                        ..Default::default()
+                    },
+                );
+                x += tile;
+            }
+            y += tile;
+        }
+    } else {
+        draw_rectangle(ox, oy, a.width, a.height, Color::new(0.24, 0.30, 0.25, 1.0));
+    }
+    // Inner shadow along the top edge sells the "sunken arena" look.
+    draw_rectangle(ox, oy, a.width, 6.0, Color::new(0.0, 0.0, 0.1, 0.12));
+
+    // Ground-level effects: telegraphs, bursts, melee arcs.
     for ar in battle.areas() {
         let col = move_color(data, assets, ar.mv);
         let c = to_screen(ar.center, shake);
@@ -95,53 +181,98 @@ pub fn draw_battle(battle: &Battle, gfx: &Gfx, fx: &Fx, player: usize) {
             Shape::Circle { radius } => {
                 if !ar.is_active() {
                     let prog = 1.0 - (ar.delay / ar.delay_total.max(1e-3)).clamp(0.0, 1.0);
-                    draw_circle(c.x, c.y, radius, Color::new(col.r, col.g, col.b, 0.10));
-                    draw_circle(c.x, c.y, radius * prog, Color::new(col.r, col.g, col.b, 0.22));
-                    draw_circle_lines(c.x, c.y, radius, 2.0, Color::new(col.r, col.g, col.b, 0.8));
+                    let pulse = 0.5 + 0.5 * (get_time() as f32 * 18.0).sin();
+                    draw_circle(c.x, c.y, radius, with_alpha(col, 0.12));
+                    draw_circle(c.x, c.y, radius * prog, with_alpha(col, 0.25));
+                    draw_circle_lines(c.x, c.y, radius, 3.0, with_alpha(shade(col, 0.6), 0.6 + 0.4 * pulse));
                 } else {
-                    draw_circle(c.x, c.y, radius, Color::new(col.r, col.g, col.b, 0.55));
-                    draw_circle_lines(c.x, c.y, radius, 3.0, WHITE);
+                    draw_circle(c.x, c.y, radius, with_alpha(col, 0.55));
+                    draw_circle(c.x, c.y, radius * 0.6, with_alpha(shade(col, 1.4), 0.5));
+                    draw_circle_lines(c.x, c.y, radius, 4.0, WHITE);
                 }
             }
             Shape::Arc { range, dir, half_arc } => {
                 let fade = (ar.active / ar.active_total.max(1e-3)).clamp(0.2, 1.0);
-                draw_arc_sector(c, range, dir.angle(), half_arc, Color::new(col.r, col.g, col.b, 0.55 * fade));
+                draw_arc_sector(c, range, dir.angle(), half_arc, with_alpha(col, 0.5 * fade));
+                draw_arc_sector(c, range * 0.6, dir.angle(), half_arc * 0.8, with_alpha(shade(col, 1.5), 0.45 * fade));
             }
         }
     }
 
-    for p in battle.projectiles() {
-        let col = move_color(data, assets, p.mv);
+    // Projectile ground shadows first, so sprites can stand on top of them.
+    let projectiles = battle.projectiles();
+    for p in &projectiles {
         let s = to_screen(p.pos, shake);
-        let tail = to_screen(p.pos - p.vel * 0.04, shake);
-        draw_line(tail.x, tail.y, s.x, s.y, p.radius * 1.2, Color::new(col.r, col.g, col.b, 0.35));
-        draw_circle(s.x, s.y, p.radius, col);
-        draw_circle(s.x, s.y, p.radius * 0.45, Color::new(1.0, 1.0, 1.0, 0.85));
+        draw_ellipse(s.x, s.y, p.radius, p.radius * 0.45, 0.0, Color::new(0.0, 0.0, 0.1, 0.22));
     }
 
-    // Draw back-to-front so the lower creature overlaps the upper one.
-    let mut order: Vec<usize> = (0..battle.fighter_count()).collect();
-    let views: Vec<FighterView> = order.iter().map(|&i| battle.fighter(i)).collect();
-    order.sort_by(|&a, &b| views[a].body.pos.y.total_cmp(&views[b].body.pos.y));
-    for i in order {
-        let flash = fx.flash.get(i).copied().unwrap_or(0.0) > 0.0;
-        draw_fighter(data, gfx, &views[i], flash, i == player, battle.time(), shake);
+    // Fighters and rocks, back to front.
+    let views: Vec<FighterView> = (0..battle.fighter_count()).map(|i| battle.fighter(i)).collect();
+    let mut items: Vec<(f32, Drawable)> = views.iter().enumerate().map(|(i, v)| (v.body.pos.y, Drawable::Fighter(i))).collect();
+    items.extend(a.pillars.iter().enumerate().map(|(i, p)| (p.pos.y, Drawable::Rock(i))));
+    items.sort_by(|x, y| x.0.total_cmp(&y.0));
+    for (_, d) in items {
+        match d {
+            Drawable::Fighter(i) => {
+                let flash = fx.flash.get(i).copied().unwrap_or(0.0) > 0.0;
+                draw_fighter(data, gfx, &views[i], flash, i == player, battle.time(), shake);
+            }
+            Drawable::Rock(i) => {
+                let p = &a.pillars[i];
+                let s = to_screen(p.pos, shake);
+                draw_ellipse(s.x, s.y + p.radius * 0.15, p.radius * 1.05, p.radius * 0.5, 0.0, Color::new(0.0, 0.0, 0.1, 0.25));
+                match tex {
+                    Some(t) => {
+                        let n = (t.obstacles.width() / 64.0).max(1.0) as usize;
+                        let src = Rect::new((i % n) as f32 * 64.0, 0.0, 64.0, 64.0);
+                        let sc = gfx.sprites.layout.pixel_scale;
+                        draw_texture_ex(
+                            &t.obstacles,
+                            (s.x - 32.0 * sc).round(),
+                            (s.y - 46.0 * sc).round(),
+                            WHITE,
+                            DrawTextureParams {
+                                dest_size: Some(vec2(64.0 * sc, 64.0 * sc)),
+                                source: Some(src),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    None => draw_circle(s.x, s.y, p.radius, Color::new(0.4, 0.4, 0.44, 1.0)),
+                }
+            }
+        }
+    }
+
+    // Projectiles fly at body height above their shadow.
+    for p in &projectiles {
+        let col = move_color(data, assets, p.mv);
+        let s = to_screen(p.pos, shake) - vec2(0.0, AIR);
+        let back = p.vel.normalize_or_zero();
+        let tail = s - vec2(back.x, back.y) * p.radius * 3.0;
+        draw_line(tail.x, tail.y, s.x, s.y, p.radius * 1.4, with_alpha(col, 0.45));
+        draw_circle(s.x, s.y, p.radius + 2.0, shade(col, 0.55));
+        draw_circle(s.x, s.y, p.radius, col);
+        draw_circle(s.x - p.radius * 0.25, s.y - p.radius * 0.25, p.radius * 0.45, Color::new(1.0, 1.0, 1.0, 0.9));
     }
 
     for p in &fx.particles {
-        let s = to_screen(p.pos, shake);
+        let s = to_screen(p.pos, shake) - vec2(0.0, AIR * 0.6);
         let k = (p.life / p.max_life).clamp(0.0, 1.0);
-        draw_circle(s.x, s.y, p.size * (0.4 + 0.6 * k), Color::new(p.color.r, p.color.g, p.color.b, p.color.a * k));
+        let sz = (p.size * (0.4 + 0.6 * k)).max(1.5).round();
+        // Square particles keep the pixel-art look.
+        draw_rectangle((s.x - sz * 0.5).round(), (s.y - sz * 0.5).round(), sz, sz, with_alpha(p.color, p.color.a * k));
     }
 
     for f in &fx.floaters {
-        let s = to_screen(f.pos, shake);
-        let a = Fx::floater_alpha(f);
-        text_centered(&f.text, s.x + 1.0, s.y + 1.0, f.size, Color::new(0.0, 0.0, 0.0, a * 0.7));
-        text_centered(&f.text, s.x, s.y, f.size, Color::new(f.color.r, f.color.g, f.color.b, a));
+        let s = to_screen(f.pos, shake) - vec2(0.0, AIR * 2.0);
+        let al = Fx::floater_alpha(f);
+        let w = text_width(&f.text, f.size);
+        text_outlined(&f.text, s.x - w * 0.5, s.y, f.size, with_alpha(f.color, al), with_alpha(INK, al));
     }
 
-    draw_top_bar(battle, assets, player);
+    draw_callouts(fx, player);
+    draw_top_bar(battle, gfx, player);
     draw_bottom_hud(battle, assets, player);
 }
 
@@ -162,60 +293,19 @@ fn draw_fighter(data: &GameData, gfx: &Gfx, v: &FighterView, flash: bool, is_pla
     let s = to_screen(v.body.pos, shake);
     let r = v.body.radius;
     let base = rgb(assets.creature_color(&c.asset), 1.0);
-    let alpha = if v.fighter.iframes > 0.0 { 0.45 } else { 1.0 };
-    let ring = if is_player { Color::new(1.0, 1.0, 1.0, 0.85) } else { Color::new(1.0, 0.35, 0.35, 0.85) };
+    let alive = v.fighter.alive();
+    let team = if is_player { Color::new(0.35, 0.75, 1.0, 1.0) } else { Color::new(1.0, 0.35, 0.35, 1.0) };
 
-    // Ground: shadow plus a team-coloured ring that also shows the hurtbox.
-    draw_ellipse(s.x, s.y + r * 0.55, r * 0.95, r * 0.4, 0.0, Color::new(0.0, 0.0, 0.0, 0.3));
-    draw_circle_lines(s.x, s.y, r + 2.0, 2.0, Color::new(ring.r, ring.g, ring.b, 0.55));
-
-    let sheet = gfx.sprites.sheet(&c.asset);
-    if let Action::Dash { dir, .. } = v.fighter.action {
-        for k in 1..4 {
-            let t = s - vec2(dir.x, dir.y) * (k as f32 * 10.0);
-            draw_circle(t.x, t.y, r * (1.0 - k as f32 * 0.15), Color::new(base.r, base.g, base.b, 0.16));
-        }
-    }
-
-    if let Some(tex) = sheet {
-        let layout = &gfx.sprites.layout;
-        let speed = v.body.vel.length();
-        let (anim, frame) = pick_frame(&v.fighter.action, speed, flash, time, layout);
-        let size = 2.0 * r / layout.body_fraction;
-        let tint = if v.fighter.alive() {
-            Color::new(1.0, 1.0, 1.0, alpha)
-        } else {
-            Color::new(0.55, 0.55, 0.55, 0.8)
-        };
-        draw_texture_ex(
-            tex,
-            s.x - size * 0.5,
-            s.y - size * 0.5 - size * 0.06,
-            tint,
-            DrawTextureParams {
-                dest_size: Some(vec2(size, size)),
-                source: Some(gfx.sprites.source_rect(anim, frame)),
-                flip_x: v.fighter.facing.x < 0.0,
-                ..Default::default()
-            },
-        );
-    } else {
-        let mut col = if v.fighter.alive() { base } else { Color::new(0.3, 0.3, 0.3, 0.6) };
-        col.a *= alpha;
-        if flash {
-            col = Color::new(1.0, 1.0, 1.0, col.a);
-        }
-        draw_circle(s.x, s.y, r, col);
-        draw_circle_lines(s.x, s.y, r + 2.0, 2.5, ring);
-    }
-
-    // Aim marker just outside the hurtbox.
-    let f = vec2(v.fighter.facing.x, v.fighter.facing.y);
-    let tip = s + f * (r + 12.0);
-    let side = vec2(-f.y, f.x) * 5.0;
-    let back = s + f * (r + 4.0);
-    if v.fighter.alive() {
-        draw_triangle(tip, back + side, back - side, ring);
+    // Ground: shadow and a team ring at the creature's feet (its hurtbox).
+    draw_ellipse(s.x, s.y, r * 1.05, r * 0.55, 0.0, Color::new(0.0, 0.0, 0.1, 0.28));
+    if alive {
+        draw_ellipse_lines(s.x, s.y, r + 3.0, (r + 3.0) * 0.55, 0.0, 2.0, with_alpha(team, 0.8));
+        // Aim marker on the ground.
+        let f = vec2(v.fighter.facing.x, v.fighter.facing.y * 0.55);
+        let tip = s + f * (r + 14.0);
+        let side = vec2(-f.y, f.x).normalize_or_zero() * 5.0;
+        let back = s + f * (r + 5.0);
+        draw_triangle(tip, back + side, back - side, team);
     }
 
     match v.fighter.action {
@@ -223,78 +313,150 @@ fn draw_fighter(data: &GameData, gfx: &Gfx, v: &FighterView, flash: bool, is_pla
             let mv = &data.moves[v.fighter.slots[slot].mv];
             let mc = move_color(data, assets, v.fighter.slots[slot].mv);
             let prog = 1.0 - (t / mv.windup.max(1e-3)).clamp(0.0, 1.0);
-            draw_circle_lines(s.x, s.y, r + 6.0 + 6.0 * (1.0 - prog), 3.0, mc);
-            // Show where melee arcs / self bursts will land.
+            draw_ellipse_lines(s.x, s.y, r + 8.0 + 8.0 * (1.0 - prog), (r + 8.0 + 8.0 * (1.0 - prog)) * 0.55, 0.0, 3.0, mc);
             match mv.shape {
                 MoveShape::Melee { range, arc_deg, .. } => {
-                    draw_arc_sector(s, range, v.fighter.facing.angle(), arc_deg.to_radians() * 0.5, Color::new(mc.r, mc.g, mc.b, 0.12));
+                    draw_arc_sector(s, range, v.fighter.facing.angle(), arc_deg.to_radians() * 0.5, with_alpha(mc, 0.14));
                 }
                 MoveShape::Burst { radius, max_distance, .. } if max_distance <= 0.0 => {
-                    draw_circle_lines(s.x, s.y, radius, 1.5, Color::new(mc.r, mc.g, mc.b, 0.5));
+                    draw_circle_lines(s.x, s.y, radius, 2.0, with_alpha(mc, 0.55));
                 }
                 _ => {}
             }
         }
-        Action::Hitstun { .. } => {
-            text_centered("*", s.x, s.y - r - 10.0, 28.0, YELLOW);
+        Action::Dash { dir, .. } => {
+            for k in 1..4 {
+                let t = s - vec2(dir.x, dir.y) * (k as f32 * 12.0) - vec2(0.0, r * 0.6);
+                draw_circle(t.x, t.y, r * (0.9 - k as f32 * 0.15), with_alpha(base, 0.18));
+            }
         }
         _ => {}
     }
 
-    // Overhead HP bar.
-    let w = 54.0;
-    let frac = (v.fighter.hp / v.fighter.max_hp).clamp(0.0, 1.0);
-    let bx = s.x - w * 0.5;
-    let by = s.y - r / gfx.sprites.layout.body_fraction - 4.0;
-    draw_rectangle(bx, by, w, 6.0, Color::new(0.0, 0.0, 0.0, 0.6));
-    draw_rectangle(bx, by, w * frac, 6.0, hp_color(frac));
-}
-
-fn hp_color(frac: f32) -> Color {
-    if frac > 0.5 {
-        Color::new(0.35, 0.85, 0.40, 1.0)
-    } else if frac > 0.2 {
-        Color::new(0.95, 0.78, 0.25, 1.0)
+    let top = if let Some(tex) = gfx.sprites.sheet(&c.asset) {
+        let layout = &gfx.sprites.layout;
+        let (anim, frame) = pick_frame(&v.fighter.action, v.body.vel.length(), flash, time, layout);
+        let (dir, flip) = pick_dir(v.fighter.facing);
+        let tint = if !alive {
+            Color::new(0.6, 0.6, 0.66, 0.85)
+        } else if v.fighter.iframes > 0.0 {
+            Color::new(1.0, 1.0, 1.0, 0.5)
+        } else {
+            WHITE
+        };
+        gfx.sprites.draw_frame(tex, gfx.sprites.source_rect(anim, dir, frame), s, flip, tint);
+        s.y - (layout.anchor.1 - 14.0) * layout.pixel_scale
     } else {
-        Color::new(0.92, 0.30, 0.25, 1.0)
+        let mut col = if alive { base } else { Color::new(0.3, 0.3, 0.3, 0.6) };
+        if flash {
+            col = WHITE;
+        }
+        draw_circle(s.x, s.y - r * 0.6, r, col);
+        s.y - r * 2.0
+    };
+
+    if matches!(v.fighter.action, Action::Hitstun { .. }) {
+        let t = time * 10.0;
+        for k in 0..3 {
+            let a = t + k as f32 * 2.1;
+            let p = vec2(s.x + a.cos() * 14.0, top + 6.0 + a.sin() * 4.0);
+            draw_rectangle(p.x - 2.0, p.y - 2.0, 4.0, 4.0, YELLOW);
+        }
+    }
+
+    // Overhead HP bar.
+    if alive {
+        let w = 48.0;
+        let frac = (v.fighter.hp / v.fighter.max_hp).clamp(0.0, 1.0);
+        let (bx, by) = ((s.x - w * 0.5).round(), (top - 10.0).round());
+        draw_rectangle(bx - 1.0, by - 1.0, w + 2.0, 7.0, INK);
+        draw_rectangle(bx, by, w * frac, 5.0, hp_color(frac));
+        draw_rectangle(bx, by, w * frac, 2.0, shade(hp_color(frac), 1.25));
     }
 }
 
-fn draw_top_bar(battle: &Battle, assets: &AssetDb, player: usize) {
+fn draw_callouts(fx: &Fx, player: usize) {
+    for (i, c) in fx.callouts.iter().enumerate() {
+        let Some(c) = c else { continue };
+        let size = 24.0;
+        let w = text_width(&c.text, size) + 28.0;
+        let h = 34.0;
+        // Slide in from the side, fade out at the end.
+        let slide = (c.t / 0.12).min(1.0);
+        let fade = ((CALLOUT_LIFE - c.t) / 0.25).clamp(0.0, 1.0);
+        let y = ARENA_Y + 14.0;
+        let x = if i == player {
+            ARENA_X + 12.0 - (1.0 - slide) * (w + 20.0)
+        } else {
+            ARENA_X + 1200.0 - 12.0 - w + (1.0 - slide) * (w + 20.0)
+        };
+        draw_rectangle(x - 3.0, y - 3.0, w + 6.0, h + 6.0, with_alpha(INK, fade));
+        draw_rectangle(x, y, w, h, with_alpha(PAPER, fade));
+        draw_rectangle(x, y, 8.0, h, with_alpha(c.color, fade));
+        draw_rectangle(x + w - 8.0, y, 8.0, h, with_alpha(c.color, fade));
+        text_outlined(&c.text, x + 14.0, y + 25.0, size, with_alpha(TEXT, fade), with_alpha(shade(c.color, 0.45), fade));
+    }
+}
+
+fn draw_top_bar(battle: &Battle, gfx: &Gfx, player: usize) {
     let data = &*battle.data;
-    draw_rectangle(0.0, 0.0, SCREEN_W, 56.0, PANEL);
+    let assets = gfx.assets;
+    draw_rectangle(0.0, 0.0, SCREEN_W, 52.0, BG);
     let enemy = 1 - player;
-    for (slot, idx) in [(0, player), (1, enemy)] {
+    for (side, idx) in [(0, player), (1, enemy)] {
         let v = battle.fighter(idx);
         let c = &data.creatures[v.fighter.creature];
-        let x = if slot == 0 { 40.0 } else { 760.0 };
-        let w = 480.0;
-        let label = if slot == 0 { "YOU" } else { "FOE" };
-        draw_text(format!("{label}  {}", assets.creature_name(&c.asset)), x, 20.0, 22.0, TEXT);
-        let mut tx = x + 230.0;
-        for &t in &c.types {
-            let name = assets.type_name(&data.types.names[t]);
-            let col = type_id_color(data, assets, t);
-            let tw = measure_text(name, None, 16, 1.0).width + 12.0;
-            draw_rectangle(tx, 6.0, tw, 18.0, col);
-            draw_text(name, tx + 6.0, 20.0, 16.0, BLACK);
-            tx += tw + 6.0;
+        let (pw, ph) = (520.0, 44.0);
+        let px = if side == 0 { 40.0 } else { SCREEN_W - 40.0 - pw };
+        let py = 4.0;
+        panel(px, py, pw, ph);
+        // Portrait.
+        let (pbx, pby, pbs) = if side == 0 { (px + 4.0, py + 2.0, 40.0) } else { (px + pw - 44.0, py + 2.0, 40.0) };
+        draw_rectangle(pbx, pby, pbs, pbs, Color::new(0.80, 0.86, 0.94, 1.0));
+        draw_rectangle_lines(pbx, pby, pbs, pbs, 2.0, INK);
+        if let Some(tex) = gfx.sprites.sheet(&c.asset) {
+            let src = gfx.sprites.portrait_rect();
+            let k = (pbs - 4.0) / src.w.max(src.h);
+            draw_texture_ex(
+                tex,
+                pbx + 2.0,
+                pby + 2.0 + (pbs - 4.0 - src.h * k) * 0.5,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(src.w * k, src.h * k)),
+                    source: Some(src),
+                    flip_x: side == 1,
+                    ..Default::default()
+                },
+            );
         }
+        let name = assets.creature_name(&c.asset).to_uppercase();
+        let tx = if side == 0 { px + 52.0 } else { px + 12.0 };
+        let tag = if side == 0 { "YOU" } else { "FOE" };
+        text_outlined(&name, tx, py + 20.0, 22.0, TEXT, INK);
+        let mut bx = tx + text_width(&name, 22.0) + 12.0;
+        for &t in &c.types {
+            bx += type_badge(data, assets, t, bx, py + 5.0, 14.0) + 4.0;
+        }
+        let tagc = if side == 0 { Color::new(0.35, 0.75, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.4, 1.0) };
+        text_outlined(tag, bx + 6.0, py + 18.0, 14.0, tagc, INK);
         let frac = (v.fighter.hp / v.fighter.max_hp).clamp(0.0, 1.0);
-        draw_rectangle(x, 30.0, w, 16.0, Color::new(0.0, 0.0, 0.0, 0.5));
-        draw_rectangle(x, 30.0, w * frac, 16.0, hp_color(frac));
-        draw_rectangle_lines(x, 30.0, w, 16.0, 1.0, DIM);
-        let hp = format!("{:.0} / {:.0}", v.fighter.hp.ceil(), v.fighter.max_hp);
-        let tw = measure_text(&hp, None, 16, 1.0).width;
-        draw_text(&hp, x + w - tw - 4.0, 43.0, 16.0, TEXT);
+        hp_bar(tx, py + 27.0, 330.0, frac);
+        let hp = format!("{:.0}/{:.0}", v.fighter.hp.ceil(), v.fighter.max_hp);
+        draw_text(&hp, tx + 366.0, py + 38.0, 18.0, INK);
     }
     let left = (data.balance.max_battle_seconds - battle.time()).max(0.0);
-    text_centered(&format!("{:.0}", left.ceil()), SCREEN_W * 0.5, 38.0, 36.0, if left < 10.0 { RED } else { TEXT });
+    let t = format!("{}:{:02}", (left.ceil() as u32) / 60, (left.ceil() as u32) % 60);
+    let (bw, bx) = (76.0, SCREEN_W * 0.5 - 38.0);
+    panel(bx, 10.0, bw, 30.0);
+    let col = if left < 10.0 { Color::new(0.95, 0.3, 0.3, 1.0) } else { INK };
+    let w = text_width(&t, 24.0);
+    draw_text(&t, SCREEN_W * 0.5 - w * 0.5, 32.0, 24.0, col);
 }
 
 fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
     let data = &*battle.data;
-    draw_rectangle(0.0, HUD_Y - 6.0, SCREEN_W, SCREEN_H - HUD_Y + 6.0, PANEL);
+    draw_rectangle(0.0, HUD_Y - 6.0, SCREEN_W, SCREEN_H - HUD_Y + 6.0, BG);
     let v = battle.fighter(player);
     let active_slot = match v.fighter.action {
         Action::Windup { slot, .. } => Some(slot),
@@ -305,9 +467,10 @@ fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
         let x = 40.0 + i as f32 * 186.0;
         let (y, w, h) = (HUD_Y + 4.0, 176.0, 78.0);
         let col = move_color(data, assets, s.mv);
-        draw_rectangle(x, y, w, h, Color::new(0.08, 0.09, 0.11, 1.0));
-        draw_rectangle(x, y, 6.0, h, col);
-        draw_text(assets.move_name(&mv.asset), x + 14.0, y + 22.0, 22.0, TEXT);
+        draw_rectangle(x - 2.0, y - 2.0, w + 4.0, h + 4.0, INK);
+        draw_rectangle(x, y, w, h, shade(col, 0.85));
+        draw_rectangle(x, y, w, h * 0.45, col);
+        text_outlined(assets.move_name(&mv.asset), x + 10.0, y + 24.0, 22.0, TEXT, shade(col, 0.4));
         let kind = match mv.shape {
             MoveShape::Projectile { count, .. } if count > 1 => "spread",
             MoveShape::Projectile { .. } => "shot",
@@ -315,57 +478,60 @@ fn draw_bottom_hud(battle: &Battle, assets: &AssetDb, player: usize) {
             MoveShape::Burst { max_distance, .. } if max_distance > 0.0 => "aimed",
             MoveShape::Burst { .. } => "burst",
         };
-        draw_text(format!("{}  pow {:.0}  {kind}", assets.type_name(&data.types.names[mv.element]), mv.power), x + 14.0, y + 42.0, 15.0, DIM);
-        draw_text(PLAYER_KEYS[i], x + 14.0, y + 66.0, 18.0, Color::new(col.r, col.g, col.b, 1.0));
+        text_outlined(
+            &format!("{}  POW {:.0}  {kind}", assets.type_name(&data.types.names[mv.element]).to_uppercase(), mv.power),
+            x + 10.0,
+            y + 46.0,
+            14.0,
+            TEXT,
+            shade(col, 0.4),
+        );
+        text_outlined(PLAYER_KEYS[i], x + 10.0, y + 68.0, 16.0, Color::new(1.0, 0.95, 0.6, 1.0), shade(col, 0.35));
         if !s.ready() {
             let frac = (s.remaining / mv.cooldown).clamp(0.0, 1.0);
-            draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.0, 0.0, 0.0, 0.6));
-            text_centered(&format!("{:.1}", s.remaining), x + w - 32.0, y + 66.0, 26.0, TEXT);
-        } else {
-            draw_rectangle_lines(x, y, w, h, 2.0, Color::new(col.r, col.g, col.b, 0.9));
+            draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.05, 0.05, 0.1, 0.6));
+            text_outlined(&format!("{:.1}", s.remaining), x + w - 46.0, y + 68.0, 24.0, TEXT, INK);
         }
         if active_slot == Some(i) {
-            draw_rectangle_lines(x - 2.0, y - 2.0, w + 4.0, h + 4.0, 3.0, WHITE);
+            draw_rectangle_lines(x - 4.0, y - 4.0, w + 8.0, h + 8.0, 3.0, WHITE);
         }
     }
 
     // Dash.
     let x = 40.0 + 4.0 * 186.0;
     let (y, w, h) = (HUD_Y + 4.0, 110.0, 78.0);
-    draw_rectangle(x, y, w, h, Color::new(0.08, 0.09, 0.11, 1.0));
-    draw_text("Dash", x + 12.0, y + 22.0, 22.0, TEXT);
-    draw_text("SPACE / SHIFT", x + 12.0, y + 66.0, 14.0, DIM);
+    draw_rectangle(x - 2.0, y - 2.0, w + 4.0, h + 4.0, INK);
+    draw_rectangle(x, y, w, h, PAPER);
+    text_outlined("DASH", x + 10.0, y + 26.0, 22.0, TEXT, INK);
+    draw_text("SPACE/SHIFT", x + 10.0, y + 66.0, 14.0, INK);
     if v.fighter.dash_cooldown > 0.0 {
         let frac = (v.fighter.dash_cooldown / data.balance.dash.cooldown).clamp(0.0, 1.0);
-        draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.0, 0.0, 0.0, 0.6));
-    } else {
-        draw_rectangle_lines(x, y, w, h, 2.0, WHITE);
+        draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.05, 0.05, 0.1, 0.55));
     }
 
     // Opponent cooldowns (compact) so their windows are readable.
     let e = battle.fighter(1 - player);
-    draw_text("FOE MOVES", 920.0, HUD_Y + 18.0, 16.0, DIM);
+    text_outlined("FOE MOVES", 920.0, HUD_Y + 16.0, 16.0, DIM, INK);
     for (i, s) in e.fighter.slots.iter().enumerate() {
         let mv = &data.moves[s.mv];
         let col = move_color(data, assets, s.mv);
         let x = 920.0 + i as f32 * 80.0;
         let (y, w, h) = (HUD_Y + 26.0, 74.0, 52.0);
-        draw_rectangle(x, y, w, h, Color::new(col.r, col.g, col.b, 0.35));
+        draw_rectangle(x - 1.0, y - 1.0, w + 2.0, h + 2.0, INK);
+        draw_rectangle(x, y, w, h, shade(col, 0.8));
         let name = assets.move_name(&mv.asset);
         let short: String = name.chars().take(9).collect();
-        draw_text(&short, x + 4.0, y + 18.0, 15.0, TEXT);
+        text_outlined(&short, x + 4.0, y + 18.0, 14.0, TEXT, shade(col, 0.4));
         if !s.ready() {
             let frac = (s.remaining / mv.cooldown).clamp(0.0, 1.0);
-            draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.0, 0.0, 0.0, 0.6));
-            draw_text(format!("{:.1}", s.remaining), x + 4.0, y + 44.0, 18.0, TEXT);
-        } else {
-            draw_rectangle_lines(x, y, w, h, 1.5, col);
+            draw_rectangle(x, y + h * (1.0 - frac), w, h * frac, Color::new(0.05, 0.05, 0.1, 0.6));
+            text_outlined(&format!("{:.1}", s.remaining), x + 4.0, y + 44.0, 18.0, TEXT, INK);
         }
     }
 }
 
 pub fn draw_pause() {
-    draw_rectangle(0.0, 0.0, SCREEN_W, SCREEN_H, Color::new(0.0, 0.0, 0.0, 0.55));
+    draw_rectangle(0.0, 0.0, SCREEN_W, SCREEN_H, Color::new(0.0, 0.0, 0.05, 0.55));
     text_centered("PAUSED", SCREEN_W * 0.5, 300.0, 80.0, TEXT);
     text_centered("ESC / P  resume      R  restart      ENTER  creature select      X  quit", SCREEN_W * 0.5, 370.0, 24.0, TEXT);
 }
@@ -373,11 +539,11 @@ pub fn draw_pause() {
 pub fn draw_result(battle: &Battle, assets: &AssetDb, player: usize) {
     let Some(outcome) = battle.outcome() else { return };
     let data = &*battle.data;
-    draw_rectangle(0.0, 0.0, SCREEN_W, SCREEN_H, Color::new(0.0, 0.0, 0.0, 0.62));
+    draw_rectangle(0.0, 0.0, SCREEN_W, SCREEN_H, Color::new(0.0, 0.0, 0.05, 0.6));
     let me = battle.fighter(player);
     let foe = battle.fighter(1 - player);
     let (title, col) = match outcome.winner() {
-        Some(t) if t == me.fighter.team => ("VICTORY", Color::new(0.45, 0.9, 0.5, 1.0)),
+        Some(t) if t == me.fighter.team => ("VICTORY!", Color::new(1.0, 0.85, 0.3, 1.0)),
         Some(_) => ("DEFEAT", Color::new(0.95, 0.35, 0.3, 1.0)),
         None => ("DRAW", TEXT),
     };
@@ -385,8 +551,9 @@ pub fn draw_result(battle: &Battle, assets: &AssetDb, player: usize) {
         Outcome::Victory { .. } => "knockout",
         Outcome::Timeout { .. } => "time up - decided on remaining HP",
     };
-    text_centered(title, SCREEN_W * 0.5, 260.0, 96.0, col);
-    text_centered(sub, SCREEN_W * 0.5, 300.0, 24.0, DIM);
+    text_centered(title, SCREEN_W * 0.5, 250.0, 96.0, col);
+    text_centered(sub, SCREEN_W * 0.5, 292.0, 24.0, DIM);
+    panel(250.0, 330.0, 780.0, 110.0);
     let line = |label: &str, v: &FighterView, y: f32| {
         let c = &data.creatures[v.fighter.creature];
         let s = &v.fighter.stats;
@@ -399,11 +566,13 @@ pub fn draw_result(battle: &Battle, assets: &AssetDb, player: usize) {
             s.moves_used,
             s.dodges
         );
-        text_centered(&t, SCREEN_W * 0.5, y, 22.0, TEXT);
+        let w = text_width(&t, 22.0);
+        draw_text(&t, SCREEN_W * 0.5 - w * 0.5, y, 22.0, INK);
     };
-    line("You", &me, 360.0);
-    line("Foe", &foe, 392.0);
-    text_centered(&format!("time {:.1}s", battle.time()), SCREEN_W * 0.5, 428.0, 20.0, DIM);
+    line("You", &me, 364.0);
+    line("Foe", &foe, 396.0);
+    let tt = format!("time {:.1}s", battle.time());
+    draw_text(&tt, SCREEN_W * 0.5 - text_width(&tt, 18.0) * 0.5, 426.0, 18.0, Color::new(0.4, 0.42, 0.5, 1.0));
     text_centered("R  rematch      ENTER  creature select      ESC  quit", SCREEN_W * 0.5, 500.0, 24.0, TEXT);
 }
 
@@ -417,7 +586,7 @@ pub struct SelectView<'a> {
 pub fn draw_select(data: &GameData, gfx: &Gfx, v: &SelectView) {
     let assets = gfx.assets;
     clear_background(BG);
-    text_centered("REAL-TIME ARENA", SCREEN_W * 0.5, 70.0, 56.0, TEXT);
+    text_centered("REAL-TIME ARENA", SCREEN_W * 0.5, 70.0, 56.0, Color::new(1.0, 0.85, 0.3, 1.0));
     text_centered("UP/DOWN choose row   LEFT/RIGHT change   ENTER fight   ESC quit", SCREEN_W * 0.5, 104.0, 20.0, DIM);
 
     let rows = [
@@ -429,10 +598,17 @@ pub fn draw_select(data: &GameData, gfx: &Gfx, v: &SelectView) {
         let y = 160.0 + i as f32 * 44.0;
         let focused = i == v.focus;
         if focused {
-            draw_rectangle(380.0, y - 28.0, 520.0, 38.0, PANEL);
+            panel(380.0, y - 28.0, 520.0, 36.0);
         }
-        draw_text(label, 400.0, y, 26.0, if focused { TEXT } else { DIM });
-        text_centered(&format!("<  {value}  >"), 720.0, y, 28.0, if focused { YELLOW } else { TEXT });
+        let ink = if focused { INK } else { DIM };
+        draw_text(label, 400.0, y, 26.0, ink);
+        let t = format!("<  {value}  >");
+        let w = text_width(&t, 28.0);
+        if focused {
+            draw_text(&t, 720.0 - w * 0.5, y, 28.0, Color::new(0.85, 0.35, 0.15, 1.0));
+        } else {
+            text_outlined(&t, 720.0 - w * 0.5, y, 28.0, TEXT, INK);
+        }
     }
 
     draw_creature_card(data, gfx, v.player, v.enemy, 60.0, 310.0);
@@ -451,67 +627,54 @@ fn draw_creature_card(data: &GameData, gfx: &Gfx, id: usize, vs: usize, x: f32, 
     let c = &data.creatures[id];
     let other = &data.creatures[vs];
     let (w, h) = (560.0, 410.0);
-    draw_rectangle(x, y, w, h, PANEL);
+    panel(x, y, w, h);
     let col = rgb(assets.creature_color(&c.asset), 1.0);
+    // Sprite on a little pedestal.
+    draw_ellipse(x + 70.0, y + 96.0, 46.0, 14.0, 0.0, Color::new(0.75, 0.80, 0.88, 1.0));
     if let Some(tex) = gfx.sprites.sheet(&c.asset) {
         let frame = ((get_time() as f32 * gfx.sprites.layout.fps * 0.6) as u32) % gfx.sprites.layout.columns.max(1);
-        draw_texture_ex(
-            tex,
-            x + 12.0,
-            y + 8.0,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(vec2(96.0, 96.0)),
-                source: Some(gfx.sprites.source_rect(crate::sprites::Anim::Idle, frame)),
-                ..Default::default()
-            },
-        );
+        gfx.sprites.draw_frame(tex, gfx.sprites.source_rect(Anim::Idle, Dir::Down, frame), vec2(x + 70.0, y + 96.0), false, WHITE);
     } else {
-        draw_circle(x + 60.0, y + 60.0, c.radius * 1.5, col);
-        draw_circle_lines(x + 60.0, y + 60.0, c.radius * 1.5, 2.0, WHITE);
+        draw_circle(x + 70.0, y + 70.0, c.radius * 1.5, col);
     }
-    draw_text(assets.creature_name(&c.asset), x + 120.0, y + 52.0, 34.0, TEXT);
-    let mut tx = x + 120.0;
+    text_outlined(&assets.creature_name(&c.asset).to_uppercase(), x + 140.0, y + 52.0, 34.0, TEXT, INK);
+    let mut tx = x + 140.0;
     for &t in &c.types {
-        let name = assets.type_name(&data.types.names[t]);
-        let tw = measure_text(name, None, 18, 1.0).width + 14.0;
-        draw_rectangle(tx, y + 64.0, tw, 22.0, type_id_color(data, assets, t));
-        draw_text(name, tx + 7.0, y + 81.0, 18.0, BLACK);
-        tx += tw + 8.0;
+        tx += type_badge(data, assets, t, tx, y + 64.0, 18.0) + 8.0;
     }
     let stats = [("HP", c.hp, 200.0), ("ATK", c.attack, 150.0), ("DEF", c.defense, 150.0), ("SPD", c.speed, 300.0)];
     for (i, (n, val, max)) in stats.iter().enumerate() {
-        let sy = y + 118.0 + i as f32 * 26.0;
-        draw_text(n, x + 24.0, sy + 14.0, 18.0, DIM);
-        draw_rectangle(x + 80.0, sy, 300.0, 16.0, Color::new(0.0, 0.0, 0.0, 0.4));
-        draw_rectangle(x + 80.0, sy, 300.0 * (val / max).min(1.0), 16.0, shade(col, 0.9));
-        draw_text(format!("{val:.0}"), x + 392.0, sy + 14.0, 18.0, TEXT);
+        let sy = y + 128.0 + i as f32 * 26.0;
+        draw_text(n, x + 24.0, sy + 14.0, 18.0, INK);
+        draw_rectangle(x + 80.0, sy, 300.0, 16.0, INK);
+        draw_rectangle(x + 82.0, sy + 2.0, 296.0 * (val / max).min(1.0), 12.0, col);
+        draw_text(format!("{val:.0}"), x + 392.0, sy + 14.0, 18.0, INK);
     }
     draw_text(
         format!("moves  (x = type multiplier vs {})", assets.creature_name(&other.asset)),
         x + 24.0,
-        y + 244.0,
+        y + 250.0,
         16.0,
-        DIM,
+        Color::new(0.4, 0.42, 0.5, 1.0),
     );
     for (i, &m) in c.moves.iter().enumerate() {
         let mv = &data.moves[m];
-        let my = y + 272.0 + i as f32 * 32.0;
+        let my = y + 278.0 + i as f32 * 32.0;
         let mc = move_color(data, assets, m);
         draw_rectangle(x + 24.0, my - 16.0, 6.0, 22.0, mc);
-        draw_text(format!("{}  {}", PLAYER_KEYS[i], assets.move_name(&mv.asset)), x + 38.0, my, 20.0, TEXT);
+        draw_text(format!("{}  {}", PLAYER_KEYS[i], assets.move_name(&mv.asset)), x + 38.0, my, 20.0, INK);
         let mut mult = data.types.multiplier(mv.element, &other.types);
         if c.types.contains(&mv.element) {
             mult *= data.balance.stab;
         }
         let mcol = if mult > 1.01 {
-            Color::new(1.0, 0.65, 0.3, 1.0)
+            Color::new(0.9, 0.45, 0.1, 1.0)
         } else if mult < 0.99 {
-            DIM
+            Color::new(0.5, 0.52, 0.6, 1.0)
         } else {
-            TEXT
+            INK
         };
-        draw_text(format!("pow {:>3.0}  cd {:>3.1}s", mv.power, mv.cooldown), x + 280.0, my, 18.0, DIM);
+        draw_text(format!("pow {:>3.0}  cd {:>3.1}s", mv.power, mv.cooldown), x + 280.0, my, 18.0, Color::new(0.4, 0.42, 0.5, 1.0));
         draw_text(format!("x{mult:.2}"), x + 470.0, my, 20.0, mcol);
     }
 }

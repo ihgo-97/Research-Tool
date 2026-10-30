@@ -276,6 +276,7 @@ fn step_battle(bs: &mut BattleScreen, assets: &AssetDb, feel: &Feel) {
         bs.dash_buffer = 0.0;
     }
     bs.fx.on_events(&bs.battle, assets, feel, PLAYER);
+    bs.fx.emit_trails(&bs.battle, assets);
 }
 
 fn save_screenshot(path: &str) {

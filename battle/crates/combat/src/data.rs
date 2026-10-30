@@ -268,6 +268,9 @@ pub struct Pillar {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ArenaDef {
+    /// Presentation theme id, resolved by the front-end's asset database.
+    #[serde(default)]
+    pub art: String,
     pub width: f32,
     pub height: f32,
     pub spawns: Vec<Vec2>,

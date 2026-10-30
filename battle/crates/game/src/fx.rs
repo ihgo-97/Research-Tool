@@ -25,8 +25,19 @@ pub struct Particle {
     pub size: f32,
 }
 
+/// Move-name banner ("Ember!") shown on the user's side of the HUD.
+pub struct Callout {
+    pub text: String,
+    pub color: Color,
+    pub t: f32,
+}
+
+pub const CALLOUT_LIFE: f32 = 1.1;
+
 pub struct Fx {
     pub floaters: Vec<Floater>,
+    /// One slot per fighter.
+    pub callouts: Vec<Option<Callout>>,
     pub particles: Vec<Particle>,
     pub flash: Vec<f32>,
     pub shake: f32,
@@ -43,6 +54,7 @@ impl Fx {
     pub fn new(fighters: usize, seed: u64) -> Self {
         Self {
             floaters: Vec::new(),
+            callouts: (0..fighters).map(|_| None).collect(),
             particles: Vec::new(),
             flash: vec![0.0; fighters],
             shake: 0.0,
@@ -115,7 +127,7 @@ impl Fx {
                 Event::Dodged { pos, .. } => {
                     self.floaters.push(Floater {
                         pos,
-                        text: "dodge".into(),
+                        text: "MISS".into(),
                         color: Color::new(0.6, 0.9, 1.0, 1.0),
                         size: 20.0,
                         t: 0.0,
@@ -143,12 +155,56 @@ impl Fx {
                     self.shake = feel.shake.ko;
                     self.cues.push("ko");
                 }
-                Event::MoveStarted { .. } => {}
+                Event::MoveStarted { fighter, mv } => {
+                    let m = &data.moves[mv];
+                    if let Some(slot) = self.callouts.get_mut(fighter) {
+                        *slot = Some(Callout {
+                            text: format!("{}!", assets.move_name(&m.asset)),
+                            color: rgb(assets.type_color(&data.types.names[m.element]), 1.0),
+                            t: 0.0,
+                        });
+                    }
+                }
             }
         }
     }
 
+    /// Trail particles behind every projectile; call once per simulation tick.
+    pub fn emit_trails(&mut self, battle: &Battle, assets: &AssetDb) {
+        let data = &*battle.data;
+        for p in battle.projectiles() {
+            let ty = data.types.names[data.moves[p.mv].element].as_str();
+            let c = rgb(assets.type_color(ty), 0.9);
+            // Per-type drift: flames rise, water drips, sparks jitter.
+            let drift = match ty {
+                "fire" => Vec2::new(0.0, -60.0),
+                "water" => Vec2::new(0.0, 40.0),
+                "electric" => Vec2::new(self.rng.range(-120.0, 120.0), self.rng.range(-120.0, 120.0)),
+                "wind" => p.vel.perp().normalize_or_zero() * self.rng.range(-80.0, 80.0),
+                _ => Vec2::ZERO,
+            };
+            let jitter = Vec2::new(self.rng.range(-20.0, 20.0), self.rng.range(-20.0, 20.0));
+            let life = 0.28;
+            self.particles.push(Particle {
+                pos: p.pos - p.vel.normalize_or_zero() * p.radius,
+                vel: drift + jitter - p.vel * 0.08,
+                life,
+                max_life: life,
+                color: c,
+                size: p.radius * 0.6,
+            });
+        }
+    }
+
     pub fn update(&mut self, dt: f32, feel: &Feel) {
+        for c in self.callouts.iter_mut() {
+            if let Some(co) = c {
+                co.t += dt;
+                if co.t > CALLOUT_LIFE {
+                    *c = None;
+                }
+            }
+        }
         for f in &mut self.floaters {
             f.t += dt;
             f.pos.y -= 40.0 * dt;

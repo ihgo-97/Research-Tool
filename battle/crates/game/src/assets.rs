@@ -39,14 +39,39 @@ pub struct SheetRows {
     pub hurt: u32,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct PixelRect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SheetLayout {
     pub frame_size: u32,
     pub columns: u32,
+    /// First row of each animation.
     pub rows: SheetRows,
+    /// Rows per animation: 1 (single facing) or 3 (down, up, side).
+    pub facings: u32,
     pub fps: f32,
-    /// Hurtbox diameter as a fraction of the frame size.
-    pub body_fraction: f32,
+    /// Game units per sprite pixel (integer keeps pixels crisp).
+    pub pixel_scale: f32,
+    /// Frame pixel drawn on the creature's position.
+    pub anchor: (f32, f32),
+    /// HUD portrait crop of the first idle (down) frame.
+    pub portrait: PixelRect,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArenaArt {
+    pub ground: String,
+    pub obstacle: String,
+    /// Used by the sprite generator only.
+    #[allow(dead_code)]
+    pub snow: bool,
+    pub border: Rgb,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -56,6 +81,8 @@ pub struct AssetDb {
     #[cfg_attr(not(feature = "audio"), allow(dead_code))]
     #[serde(default)]
     pub sounds: HashMap<String, Option<String>>,
+    #[serde(default)]
+    pub arena_art: HashMap<String, ArenaArt>,
     pub types: HashMap<String, TypeAsset>,
     pub creatures: HashMap<String, CreatureAsset>,
     pub moves: HashMap<String, MoveAsset>,

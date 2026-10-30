@@ -46,7 +46,7 @@ saves frame `FRAME` as PNG. Without a display it needs `xvfb-run` (the script ha
 data/          balance: types.ron, moves.ron, creatures.ron, balance.ron, arena.ron
                feel.ron: hit-stop, shake, particles, input buffer (presentation only)
 assets/        presentation only: assets.ron (names, colours, sprite sheet layout, sounds)
-assets/sprites generated placeholder sprite sheets (cargo run --release --bin gen_sprites)
+assets/sprites, assets/arena   generated placeholder art (cargo run --release --bin gen_sprites)
 crates/combat  window-free core (reusable): data loading, sim, hitboxes, damage, AI
 crates/game    macroquad front-end + --headless / --screenshot hooks (binary: arena)
 scripts/       verify.sh, screenshot.sh
@@ -68,12 +68,21 @@ scripts/       verify.sh, screenshot.sh
 
 ### Art
 
-Each creature has a 4x4 sprite sheet (48px frames; rows idle/walk/attack/hurt,
-4 frames each; facing right; hurt frame 0 is the white hit flash). The current
-sheets are original placeholders drawn by `crates/game/src/bin/gen_sprites.rs`.
-To use real art, drop a sheet with the same layout into `assets/` and point the
-creature's `sprite` at it (or change `sheet` to match the new layout). A missing
-or malformed sheet logs a warning and falls back to a coloured circle.
+Style target: GBA/DS-era handheld battles. Pixel sprites drawn at an integer
+`pixel_scale`, a 3/4 top-down view, light bordered HUD panels, outlined text and
+move-name callouts.
+
+Each creature sheet uses 64px frames: 4 animation frames per row, with
+idle/walk/attack/hurt rows each split into down/up/side facings (side faces
+right and is mirrored for left). Frame 0 of the hurt rows is the white hit flash.
+The layout lives in `sheet` in `assets/assets.ron`.
+
+The current art is original placeholder art from `crates/game/src/bin/gen_sprites/`.
+It renders 3D primitive models (rounded shapes) into pixel art with quantised,
+hue-shifted shading ramps and coloured outlines, plus the arena ground tiles and
+rocks. Re-run it with `cargo run --release --bin gen_sprites`. To use real art,
+drop in a sheet with the same layout and point the creature's `sprite` at it.
+A missing or malformed sheet logs a warning and falls back to a coloured circle.
 
 ### Data rules
 
