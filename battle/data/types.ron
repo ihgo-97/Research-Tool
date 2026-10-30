@@ -1,0 +1,40 @@
+// Type chart. Multipliers are deliberately mild: type advantage tilts a
+// fight, it never decides it. "Immune" is just a strong resist here.
+(
+    types: ["normal", "fire", "water", "grass", "electric", "rock", "wind"],
+    multipliers: (strong: 1.2, weak: 0.85, immune: 0.7),
+    matchups: [
+        ("normal", "rock", Weak),
+
+        ("fire", "grass", Strong),
+        ("fire", "fire", Weak),
+        ("fire", "water", Weak),
+        ("fire", "rock", Weak),
+
+        ("water", "fire", Strong),
+        ("water", "rock", Strong),
+        ("water", "water", Weak),
+        ("water", "grass", Weak),
+
+        ("grass", "water", Strong),
+        ("grass", "rock", Strong),
+        ("grass", "fire", Weak),
+        ("grass", "grass", Weak),
+        ("grass", "wind", Weak),
+
+        ("electric", "water", Strong),
+        ("electric", "wind", Strong),
+        ("electric", "electric", Weak),
+        ("electric", "grass", Weak),
+        ("electric", "rock", Immune),
+
+        ("rock", "fire", Strong),
+        ("rock", "wind", Strong),
+        ("rock", "electric", Strong),
+        ("rock", "grass", Weak),
+
+        ("wind", "grass", Strong),
+        ("wind", "rock", Weak),
+        ("wind", "electric", Weak),
+    ],
+)

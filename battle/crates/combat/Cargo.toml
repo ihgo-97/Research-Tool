@@ -1,0 +1,11 @@
+[package]
+name = "combat"
+description = "Window-free real-time combat core: data, simulation, hitboxes, AI."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+hecs.workspace = true
+serde.workspace = true
+ron.workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "game"
+description = "Arena prototype: macroquad front-end plus headless/screenshot hooks."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "arena"
+path = "src/main.rs"
+
+[dependencies]
+combat = { path = "../combat" }
+macroquad.workspace = true
+serde.workspace = true
+ron.workspace = true

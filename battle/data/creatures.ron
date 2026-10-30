@@ -1,0 +1,22 @@
+// Creatures. hp/attack/defense are raw stats; speed is units/second;
+// radius is the body (hurtbox) size. Moves map to slots 1-4 in order.
+[
+    (id: "emberkit", asset: "emberkit", types: ["fire"],
+     hp: 130.0, attack: 115.0, defense: 85.0, speed: 245.0, radius: 22.0,
+     moves: ["ember", "fire_fang", "flame_burst", "swift_star"]),
+    (id: "tidepup", asset: "tidepup", types: ["water"],
+     hp: 132.0, attack: 100.0, defense: 100.0, speed: 220.0, radius: 24.0,
+     moves: ["water_jet", "tidal_ring", "tackle", "swift_star"]),
+    (id: "sproutle", asset: "sproutle", types: ["grass"],
+     hp: 165.0, attack: 95.0, defense: 110.0, speed: 210.0, radius: 25.0,
+     moves: ["seed_spray", "vine_lash", "spore_burst", "tackle"]),
+    (id: "voltfin", asset: "voltfin", types: ["electric"],
+     hp: 110.0, attack: 105.0, defense: 85.0, speed: 265.0, radius: 21.0,
+     moves: ["spark", "thunder_drop", "swift_star", "tackle"]),
+    (id: "pebblor", asset: "pebblor", types: ["rock"],
+     hp: 185.0, attack: 115.0, defense: 130.0, speed: 185.0, radius: 29.0,
+     moves: ["rock_throw", "quake", "tackle", "fire_fang"]),
+    (id: "galeon", asset: "galeon", types: ["wind"],
+     hp: 125.0, attack: 105.0, defense: 90.0, speed: 250.0, radius: 22.0,
+     moves: ["gust", "air_slash", "swift_star", "tackle"]),
+]

@@ -1,0 +1,66 @@
+// Moves. `asset` keys into assets/assets.ron for display name/colour/sound.
+// power: base damage; cooldown/windup/recovery: seconds; knockback: units/s
+// impulse; hitstun: seconds the target loses control (0 = no flinch).
+[
+    // ------------------------------------------------------------ normal
+    (id: "tackle", asset: "tackle", type: "normal", power: 40.0, cooldown: 1.2,
+     windup: 0.12, recovery: 0.15, knockback: 260.0, hitstun: 0.12,
+     shape: Melee(range: 62.0, arc_deg: 100.0, active: 0.12, lunge: 260.0)),
+    (id: "swift_star", asset: "swift_star", type: "normal", power: 30.0, cooldown: 1.6,
+     windup: 0.10, recovery: 0.10, knockback: 80.0, hitstun: 0.0,
+     shape: Projectile(speed: 620.0, radius: 8.0, range: 520.0, count: 1, spread_deg: 0.0, pierce: false)),
+
+    // -------------------------------------------------------------- fire
+    (id: "ember", asset: "ember", type: "fire", power: 45.0, cooldown: 1.5,
+     windup: 0.15, recovery: 0.15, knockback: 100.0, hitstun: 0.0,
+     shape: Projectile(speed: 540.0, radius: 11.0, range: 560.0, count: 1, spread_deg: 0.0, pierce: false)),
+    (id: "fire_fang", asset: "fire_fang", type: "fire", power: 60.0, cooldown: 3.0,
+     windup: 0.18, recovery: 0.25, knockback: 320.0, hitstun: 0.25,
+     shape: Melee(range: 66.0, arc_deg: 90.0, active: 0.12, lunge: 340.0)),
+    (id: "flame_burst", asset: "flame_burst", type: "fire", power: 80.0, cooldown: 6.0,
+     windup: 0.30, recovery: 0.35, knockback: 420.0, hitstun: 0.35,
+     shape: Burst(radius: 125.0, delay: 0.20, active: 0.15, max_distance: 0.0)),
+
+    // ------------------------------------------------------------- water
+    (id: "water_jet", asset: "water_jet", type: "water", power: 36.0, cooldown: 1.4,
+     windup: 0.08, recovery: 0.10, knockback: 120.0, hitstun: 0.0,
+     shape: Projectile(speed: 720.0, radius: 9.0, range: 540.0, count: 1, spread_deg: 0.0, pierce: false)),
+    (id: "tidal_ring", asset: "tidal_ring", type: "water", power: 90.0, cooldown: 5.0,
+     windup: 0.25, recovery: 0.30, knockback: 380.0, hitstun: 0.30,
+     shape: Burst(radius: 100.0, delay: 0.55, active: 0.20, max_distance: 380.0)),
+
+    // ------------------------------------------------------------- grass
+    (id: "seed_spray", asset: "seed_spray", type: "grass", power: 28.0, cooldown: 2.4,
+     windup: 0.15, recovery: 0.20, knockback: 70.0, hitstun: 0.0,
+     shape: Projectile(speed: 520.0, radius: 8.0, range: 420.0, count: 3, spread_deg: 30.0, pierce: false)),
+    (id: "vine_lash", asset: "vine_lash", type: "grass", power: 55.0, cooldown: 2.6,
+     windup: 0.22, recovery: 0.25, knockback: 300.0, hitstun: 0.20,
+     shape: Melee(range: 120.0, arc_deg: 70.0, active: 0.14, lunge: 0.0)),
+    (id: "spore_burst", asset: "spore_burst", type: "grass", power: 70.0, cooldown: 5.5,
+     windup: 0.35, recovery: 0.30, knockback: 300.0, hitstun: 0.60,
+     shape: Burst(radius: 115.0, delay: 0.20, active: 0.20, max_distance: 0.0)),
+
+    // ---------------------------------------------------------- electric
+    (id: "spark", asset: "spark", type: "electric", power: 38.0, cooldown: 1.2,
+     windup: 0.08, recovery: 0.10, knockback: 90.0, hitstun: 0.06,
+     shape: Projectile(speed: 760.0, radius: 8.0, range: 480.0, count: 1, spread_deg: 0.0, pierce: false)),
+    (id: "thunder_drop", asset: "thunder_drop", type: "electric", power: 110.0, cooldown: 5.5,
+     windup: 0.25, recovery: 0.30, knockback: 350.0, hitstun: 0.40,
+     shape: Burst(radius: 90.0, delay: 0.60, active: 0.15, max_distance: 420.0)),
+
+    // -------------------------------------------------------------- rock
+    (id: "rock_throw", asset: "rock_throw", type: "rock", power: 60.0, cooldown: 3.2,
+     windup: 0.30, recovery: 0.30, knockback: 380.0, hitstun: 0.25,
+     shape: Projectile(speed: 440.0, radius: 18.0, range: 500.0, count: 1, spread_deg: 0.0, pierce: false)),
+    (id: "quake", asset: "quake", type: "rock", power: 85.0, cooldown: 7.5,
+     windup: 0.40, recovery: 0.40, knockback: 450.0, hitstun: 0.45,
+     shape: Burst(radius: 150.0, delay: 0.30, active: 0.15, max_distance: 0.0)),
+
+    // -------------------------------------------------------------- wind
+    (id: "gust", asset: "gust", type: "wind", power: 42.0, cooldown: 1.6,
+     windup: 0.12, recovery: 0.12, knockback: 380.0, hitstun: 0.0,
+     shape: Projectile(speed: 560.0, radius: 16.0, range: 460.0, count: 1, spread_deg: 0.0, pierce: false)),
+    (id: "air_slash", asset: "air_slash", type: "wind", power: 55.0, cooldown: 2.4,
+     windup: 0.14, recovery: 0.20, knockback: 220.0, hitstun: 0.18,
+     shape: Melee(range: 82.0, arc_deg: 140.0, active: 0.12, lunge: 200.0)),
+]

@@ -1,0 +1,40 @@
+// Presentation assets, keyed by the `asset` ids in data/*.ron.
+// Placeholder art for now: colours only. `sprite`/`sound` paths are relative
+// to this folder and will be picked up once real art exists.
+(
+    types: {
+        "normal":   (name: "Normal",   color: (168, 168, 140)),
+        "fire":     (name: "Fire",     color: (240, 110, 48)),
+        "water":    (name: "Water",    color: (70, 140, 240)),
+        "grass":    (name: "Grass",    color: (100, 196, 80)),
+        "electric": (name: "Electric", color: (245, 205, 50)),
+        "rock":     (name: "Rock",     color: (176, 150, 92)),
+        "wind":     (name: "Wind",     color: (150, 210, 220)),
+    },
+    creatures: {
+        "emberkit": (name: "Emberkit", color: (232, 96, 52)),
+        "tidepup":  (name: "Tidepup",  color: (64, 130, 220)),
+        "sproutle": (name: "Sproutle", color: (84, 176, 76)),
+        "voltfin":  (name: "Voltfin",  color: (236, 196, 40)),
+        "pebblor":  (name: "Pebblor",  color: (150, 128, 96)),
+        "galeon":   (name: "Galeon",   color: (130, 196, 206)),
+    },
+    moves: {
+        "tackle":       (name: "Tackle"),
+        "swift_star":   (name: "Swift Star"),
+        "ember":        (name: "Ember"),
+        "fire_fang":    (name: "Fire Fang"),
+        "flame_burst":  (name: "Flame Burst"),
+        "water_jet":    (name: "Water Jet"),
+        "tidal_ring":   (name: "Tidal Ring"),
+        "seed_spray":   (name: "Seed Spray"),
+        "vine_lash":    (name: "Vine Lash"),
+        "spore_burst":  (name: "Spore Burst"),
+        "spark":        (name: "Spark"),
+        "thunder_drop": (name: "Thunder Drop"),
+        "rock_throw":   (name: "Rock Throw"),
+        "quake":        (name: "Quake"),
+        "gust":         (name: "Gust"),
+        "air_slash":    (name: "Air Slash"),
+    },
+)
