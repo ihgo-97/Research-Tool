@@ -597,7 +597,7 @@ pub fn draw_vfx_gallery(data: &GameData, gfx: &Gfx, t: f32) {
         draw_rectangle_lines(cx, cy, cw - 10.0, ch - 10.0, 2.0, INK);
         let col = move_color(data, assets, i);
         let kind = assets.move_vfx(&m.asset);
-        draw_text(&format!("{}  [{}]", assets.move_name(&m.asset), if kind.is_empty() { "-" } else { kind }), cx + 8.0, cy + 20.0, 18.0, INK);
+        draw_text(format!("{}  [{}]", assets.move_name(&m.asset), if kind.is_empty() { "-" } else { kind }), cx + 8.0, cy + 20.0, 18.0, INK);
         let mid = vec2(cx + cw * 0.5 - 5.0, cy + 95.0);
         match m.shape {
             MoveShape::Projectile { radius, .. } => {
